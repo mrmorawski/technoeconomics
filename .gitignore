@@ -14,3 +14,6 @@ wheels/
 
 # exploration folder
 learning
+
+# networks, atlite cutouts
+*.nc

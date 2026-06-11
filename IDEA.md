@@ -13,8 +13,25 @@ and a frontend that lets the user control assumptions and input data, and then d
 ## backend
 - solver: highs to keep it open source
 - framework: either raw linopy or single PyPSA node
-- fastapi/pydantic passes data to solver
+- fastapi/pydantic passes data to solver 
+- waiting stuff: sse to update progress, or backgroundtask +  polling?
 - sqlite for state + queue (if solving slow)
+
+### solver
+- ideally I'd like to get second-scale solve times, so the optimisation can be interactive
+- some tricks that may be usedful: 
+  - temporal aggregation
+  - warm starts (first solve takes a while, subsequent should be fast with minor tweaks)
+  - model persistence across runs (only change things that were tweaked to save building time)
+  - no milp
+- apparently CPU simplex should be faster than GPU PDLP for small problems like mine?  
+
+### model
+- overnight optimisation
+- lightweight component framework on top of pypsa (for now)
+
+#### heat pumps
+- most complicated part of model, if we go into process integration (likely we shouldn't). otherwise simple Link/Process with wither a constant or time varyuing COP (e.g. from carnot based on outdoor temp and process heat demand temp)  
 
 ## frontend
 ### web
@@ -64,10 +81,12 @@ and a frontend that lets the user control assumptions and input data, and then d
 3. fiddle with technoeconomics
 4. solve
 5. inspect results
+6. iterate
 
 # notes
 ## structure
 - technoeconomics.frontend_web
+- technoeconomics.frontend_cli
 - technoeconomics.backend
 - technoeconomics.model
 
@@ -105,7 +124,7 @@ from backend.main import app
 
 ```
 
-
+  
 # TODO
 - [ ] look at single-node PyPSA and whether it'd made sense here
 - [ ] learn fastapi, set up super simple server and frontend
