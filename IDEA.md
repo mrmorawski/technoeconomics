@@ -1,4 +1,4 @@
-The point of this project is to create an online tool for running technoeconomic analyses of plants with time-varying 
+The point of this project is to create an online tool for running technoeconomic analyses of plants with time-varying
 inputs and outputs. The first application is in industrial heat.
 
 # TODO
@@ -15,7 +15,7 @@ inputs and outputs. The first application is in industrial heat.
 
 # features
 ## minimal set
-- pick plant location by coords, with map display (useful for electricity prices, onsite solar etc.) 
+- pick plant location by coords, with map display (useful for electricity prices, onsite solar etc.)
 - pick plant elements/technologies to be included in optimisation from a list of pre-built models:
   - first - industrial plant. then - household. then - district heating luft-style
 - generates optimal plant setup
@@ -28,7 +28,7 @@ inputs and outputs. The first application is in industrial heat.
 - shareable result url backend usable on its own - nice API for scripting
 - CLI
 
-## extended set 
+## extended set
 - other time varying dispatch/capacity optimisation stuff, e.g. time-varying tariffs for consumers
 - users can feed in their own timeseries data - electricity prices etc.
 - noJS fallback for charts
@@ -39,14 +39,14 @@ inputs and outputs. The first application is in industrial heat.
 
 # Architecture
 ## General idea
-Still to be decided. 
+Still to be decided.
 
 Current idea is simple MVC:
 
 1. frontend passes a model preset name plus any user changes to backend
 2. backend compiles a complete model intermediate representation graph, passes to model
-3. model converts intermediate representation to pypsa, solves it, returns results to backend 
-4. backend updates db, send results to frontend 
+3. model converts intermediate representation to pypsa, solves it, returns results to backend
+4. backend updates db, send results to frontend
 5. frontend displays results to user
 6. user tweaks params, back to step 1.
 
@@ -95,9 +95,11 @@ Current idea is simple MVC:
 - input is yamls, output is yamls plus png graphs
 
 ## deploy
-- single docker container
+- docker for server
+- docker for model
+- docker compose
 
-## docs 
+## docs
 - zensical
 - short screencast on how to use
 
@@ -121,7 +123,7 @@ Current idea is simple MVC:
 - overnight optimisation
 - stateless now, later if too slow we can investigate stateful to get warm starts and such
 - for now EU, later add US data
-- initally industrial low temperature process heat. then - household energy (solar, HPs etc,)
+- initially industrial low temperature process heat. then - household energy (solar, HPs etc,)
 - for now - pypsa with an intermediate representation (PlantConfig)
 - component types:
   - input
@@ -151,7 +153,7 @@ Current idea is simple MVC:
 
 #### components
 ##### heat pumps
-- most complicated part of model, if we go into process integration (likely we shouldn't). otherwise simple Link/Process with wither a constant or time varyuing COP (e.g. from carnot based on outdoor temp and process heat demand temp)  
+- most complicated part of model, if we go into process integration (likely we shouldn't). otherwise simple Link/Process with wither a constant or time varyuing COP (e.g. from carnot based on outdoor temp and process heat demand temp)
 - current idea - two HP options:
   - ambient air in, process heat out - lower installation cost, lower COP
   - process heat/district heat in - higher installation cost, higher COP (read paper referenced in Volts)
@@ -163,7 +165,7 @@ Current idea is simple MVC:
 
 ##### residential
 - heating - heat loss as time-dependent demand, house as storage
-- electricity input - pretty simple, just get a sensible TOU tariff
+- electricity input - pretty simple, just get a sensible YOU tariff
 - not sure how to treat vars that have loose constraints such as EVs which just need a charge lvl in the morning - just add as a constraint?
 
 #### parser
@@ -175,19 +177,19 @@ Current idea is simple MVC:
 "carriers": ["electricity", "heat"]
 "components":
   - {"name": "heat_pump", etc. etc.}
-} 
+}
 ```
 
 #### optimiser
 - ideally I'd like to get second-scale solve times, so the optimisation can be interactive
 - pypsa for now
 - optimisation solver highs for open source
-- some tricks that may be usedful: 
+- some tricks that may be usedful:
   - temporal aggregation
   - warm starts (first solve takes a while, subsequent should be fast with minor tweaks)
   - model persistence across runs (only change things that were tweaked to save building time)
   - no milp
-- apparently CPU simplex should be faster than GPU PDLP for small problems like mine?  
+- apparently CPU simplex should be faster than GPU PDLP for small problems like mine?
 
 
 
@@ -231,8 +233,3 @@ from backend.main import app
 ```
 
 ```
-
-  
-
-
-

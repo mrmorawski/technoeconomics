@@ -9,18 +9,18 @@ lots of hand rolled code for sanitisation etc.
 ### nice
 easy and simple
 
-### not nice 
+### not nice
 fragile csv
 
 ## pypsa single node tea example from a master's thesis (will not name author)
-### architecture 
+### architecture
 single ipynb...
 
 solved pypsa networks for electricity and hydrogen prices
 atlite for weather
 
 ### nice
-smart aggregation? 
+smart aggregation?
 
 ### not nice
 structure...

@@ -1,0 +1,76 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+#
+# Install once with:  uv run pre-commit install --install-hooks
+# Enable commit-msg:   uv run pre-commit install --hook-type commit-msg
+default_install_hook_types: [pre-commit, commit-msg]
+
+repos:
+  # ── General hygiene ───────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+      - id: check-added-large-files
+        args: [--maxkb=1024]          # bump if you commit fixtures/notebooks
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: detect-private-key         # cheap secret guard for an energy/API app
+
+  # ── Ruff: lint + format (replaces black/isort/flake8) ─────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.17                      # keep in sync with pyproject dev dep
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  # ── uv: keep the lockfile honest ──────────────────────────────────
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.9.7
+    hooks:
+      - id: uv-lock                    # fail if uv.lock is out of date
+
+  # ── ty: Astral's type checker (run via your project env) ──────────
+  - repo: local
+    hooks:
+      - id: ty
+        name: ty (type check)
+        entry: uv run ty check
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
+
+  # ── Dockerfile linting ────────────────────────────────────────────
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.13.1
+    hooks:
+      - id: hadolint-docker
+
+  # ── Typo / spell checking (code + docs) ───────────────────────────
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.29.4                       # check latest
+    hooks:
+      - id: typos                      # ignores configured in _typos.toml
+
+  # ── Jinja/HTML templates (djlint) ─────────────────────────────────
+  # TODO: enable once the FastAPI/htmx app and its templates exist.
+  #       Scope `files:` to the templates dir (e.g. app/templates/) and
+  #       drop `djlint-reformat-jinja` in if you want auto-formatting.
+  # - repo: https://github.com/djlint/djLint
+  #   rev: v1.36.4                      # check latest
+  #   hooks:
+  #     - id: djlint-jinja             # lint only
+  #     # - id: djlint-reformat-jinja  # auto-format (watch htmx attr wrapping)
+
+  # ── Commit message: Conventional Commits ──────────────────────────
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.2.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]

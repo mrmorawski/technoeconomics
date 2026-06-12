@@ -1,0 +1,19 @@
+# Configuration for `typos` (https://github.com/crate-ci/typos)
+# Run locally with:  uv run pre-commit run typos --all-files
+#                or:  typos            (if installed standalone)
+
+[files]
+extend-exclude = [
+    "uv.lock",
+    "*.ipynb",        # notebook JSON is noisy; drop this line to spell-check them
+]
+
+[default.extend-words]
+# Energy / PyPSA jargon and abbreviations that look like typos.
+# Add entries as `wrong_looking = "wrong_looking"` to whitelist them.
+ND = "ND"             # e.g. region / node codes
+PyPSA = "PyPSA"
+
+[default.extend-identifiers]
+# Whitelist specific code identifiers verbatim (bus names, variable names, etc.)
+# e.g.  Areaa = "Areaa"

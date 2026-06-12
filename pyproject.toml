@@ -1,15 +1,21 @@
 [project]
 name = "technoeconomics-app"
 version = "0.1.0"
-description = "Add your description here"
+description = "Analyse the economics of energy systems with time-varying inputs and outputs"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "atlite",
-    "notebook>=7.5.7",
     "pypsa>=1.2.2",
-    "ty[dev]>=0.0.48",
 ]
 
 [tool.uv.sources]
 atlite = {git = "https://github.com/mrmorawski/atlite.git", branch="era5-ncar-thredds"}
+
+[dependency-groups]
+dev = [
+    "notebook>=7.5.7",
+    "pre-commit>=4.6.0",
+    "ruff>=0.15.17",
+    "ty>=0.0.49",
+]
