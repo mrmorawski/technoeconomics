@@ -1,10 +1,7 @@
-# `technoeconomics-app`
-
 <p align="center">
   <a href="https://technoeconomics.app"><strong>web UI</strong></a>
   &middot;
-  <a href="https://github.com/mrmorawski/technoeconomics"><strong>docs</strong></a>
-  &middot;
+  <a href="https://mrmorawski.github.io/technoeconomics/getting-started"><strong>docs</strong></a>
 </p>
 
 
