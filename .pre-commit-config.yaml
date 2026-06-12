@@ -8,7 +8,7 @@ default_install_hook_types: [pre-commit, commit-msg]
 repos:
   # ── General hygiene ───────────────────────────────────────────────
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: end-of-file-fixer
       - id: trailing-whitespace
@@ -32,7 +32,7 @@ repos:
 
   # ── uv: keep the lockfile honest ──────────────────────────────────
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.9.7
+    rev: 0.11.21
     hooks:
       - id: uv-lock                    # fail if uv.lock is out of date
 
@@ -48,20 +48,17 @@ repos:
 
   # ── Dockerfile linting ────────────────────────────────────────────
   - repo: https://github.com/hadolint/hadolint
-    rev: v2.13.1
+    rev: v2.14.0
     hooks:
       - id: hadolint-docker
 
-  # ── Typo / spell checking (prose only for now) ────────────────────
+  # ── Typo / spell checking  ────────────────────
   - repo: https://github.com/crate-ci/typos
-    rev: v1.29.4                       # check latest
+    rev: v1                       # check latest
     hooks:
       - id: typos                      # scope + ignores configured in _typos.toml
 
   # ── Jinja/HTML templates (djlint) ─────────────────────────────────
-  # TODO: enable once the FastAPI/htmx app and its templates exist.
-  #       Scope `files:` to the templates dir (e.g. app/templates/) and
-  #       drop `djlint-reformat-jinja` in if you want auto-formatting.
   # - repo: https://github.com/djlint/djLint
   #   rev: v1.36.4                      # check latest
   #   hooks:
@@ -70,7 +67,7 @@ repos:
 
   # ── Commit message: Conventional Commits ──────────────────────────
   - repo: https://github.com/compilerla/conventional-pre-commit
-    rev: v4.2.0
+    rev: v4.4.0
     hooks:
       - id: conventional-pre-commit
         stages: [commit-msg]
