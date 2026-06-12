@@ -23,4 +23,4 @@ atlite for weather
 smart aggregation? 
 
 ### not nice
-structure, overall fit feels clunky
+structure...
