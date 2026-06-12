@@ -6,6 +6,12 @@
 extend-exclude = [
     "uv.lock",
     "*.ipynb",        # notebook JSON is noisy; drop this line to spell-check them
+    "site/",          # Zensical build output (minified JS etc.) — not source
+    # For now, spell-check prose only (docs/README), not library code.
+    # typos has no include-only switch, so we exclude source instead.
+    # TODO: drop "*.py" once we want code-comment/docstring checks; app assets
+    #       (templates/static) are not excluded and get checked as they land.
+    "*.py",
 ]
 
 [default.extend-words]

@@ -52,11 +52,11 @@ repos:
     hooks:
       - id: hadolint-docker
 
-  # ── Typo / spell checking (code + docs) ───────────────────────────
+  # ── Typo / spell checking (prose only for now) ────────────────────
   - repo: https://github.com/crate-ci/typos
     rev: v1.29.4                       # check latest
     hooks:
-      - id: typos                      # ignores configured in _typos.toml
+      - id: typos                      # scope + ignores configured in _typos.toml
 
   # ── Jinja/HTML templates (djlint) ─────────────────────────────────
   # TODO: enable once the FastAPI/htmx app and its templates exist.

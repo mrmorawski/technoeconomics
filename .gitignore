@@ -17,3 +17,6 @@ learning
 
 # networks, atlite cutouts
 *.nc
+
+# docs build output (zensical build) — rebuilt by CI
+site/
