@@ -3,10 +3,14 @@ inputs and outputs. The first application is in industrial heat.
 
 # TODO
 - [x] look at single-node PyPSA and whether it'd made sense here
-- [ ] set up framework for development - repo, docker, docs etc. etc.
+- [x] set up framework for development - repo, docs etc. etc.
 - [ ] set up skeleton of the architecture above with end-end passthrough so I can hack on the model while testing the frontend
-- [ ] simple model
-- [ ] iterate by adding features
+    - [ ] package structure
+    - [ ] web skeleton - fastapi backend, super simple frontend
+    - [ ] model - grid electricity input, heat pump, battery, heat demand, data hardcoded, but with real interfaces
+    - [ ] data harvesting skeleton
+    - [ ] deploy
+- [ ] iterate by adding features - set up GH issues and implement one by one
 
 # Inspiration
 - http://model.energy - does the same for energy systems
@@ -34,7 +38,7 @@ inputs and outputs. The first application is in industrial heat.
 - noJS fallback for charts
 - address/map click to pick location
 - generalisable component framework
-- fast solver to do near-real-time solutions e.g. with a slider
+- fast solver to do near-real-time solutions
 - parameter sweeps
 
 # Architecture
@@ -54,6 +58,7 @@ Current idea is simple MVC:
 - as simple as possible
 - easy to maintain
 - small and performant
+- boring technologies
 
 ## frontend
 ### web
@@ -61,7 +66,6 @@ Current idea is simple MVC:
 - htmx with nojs fallback
 - charts: for now server-side svg, later some nice chart lib
 - by default exposes only a few params to user (marked in template), but almost any can be dug into if needed
-- passes base model name plus any mods to backend:
 - navbar:
   - one entry per template
   - about
@@ -71,6 +75,7 @@ Current idea is simple MVC:
   - params to be edited (with option to dive in)
   - solve button
   - reloadable graph which updates on change
+- passes base model name plus any mods to backend:
 
 ```json
 {"model": "industrial_heat",
@@ -95,20 +100,23 @@ Current idea is simple MVC:
 - input is yamls, output is yamls plus png graphs
 
 ## deploy
-- docker for server
-- docker for model
-- docker compose
+- docker on a vps
+- custom domain
 
 ## docs
 - zensical
 - short screencast on how to use
 
 ## dev
-- `ruff` lint + format with docstring check
+- `ruff`
+- `ty`
 - precommit to check
 
 ## backend
-- orchestrates everything - calls model, returns result
+- orchestrates everything:
+  - calls model
+  - returns result
+  - ensures data is available
 - fastapi/pydantic for frontend integration
 - htmx polling to get job state
 - sqlite for state:
@@ -119,7 +127,7 @@ Current idea is simple MVC:
 - how to handle rate limiting and multiple users?
 
 
-### model
+## model
 - overnight optimisation
 - stateless now, later if too slow we can investigate stateful to get warm starts and such
 - for now EU, later add US data
@@ -150,25 +158,35 @@ Current idea is simple MVC:
   - graph parser - turn a graph into a model for the solver
   - optimiser - for now pypsa, but intermediate rep means it could be sth else later
   - results processor - extraction of data, financial modelling etc.
+  - data extraction
 
-#### components
-##### heat pumps
+### components
+#### grid electricity
+- industrial
+- residential
+- user-defined timeseries
+
+#### heat pumps
 - most complicated part of model, if we go into process integration (likely we shouldn't). otherwise simple Link/Process with wither a constant or time varyuing COP (e.g. from carnot based on outdoor temp and process heat demand temp)
 - current idea - two HP options:
   - ambient air in, process heat out - lower installation cost, lower COP
   - process heat/district heat in - higher installation cost, higher COP (read paper referenced in Volts)
 
-#### templates
+#### demand profile
+- heat, electricity
+- constant, sinusoidal, user-defined timeseries
 
-##### industrial heat
+### templates
+
+#### industrial heat
 - treatment of grid electricity pricing and PPAs difficult in industrial case
 
-##### residential
+#### residential
 - heating - heat loss as time-dependent demand, house as storage
 - electricity input - pretty simple, just get a sensible YOU tariff
 - not sure how to treat vars that have loose constraints such as EVs which just need a charge lvl in the morning - just add as a constraint?
 
-#### parser
+### parser
 - overall config borrows pypsa network representation with carriers and nodes that attach to them - simplifies graph repr massively
 
 ```json
@@ -180,17 +198,45 @@ Current idea is simple MVC:
 }
 ```
 
-#### optimiser
+### optimiser
 - ideally I'd like to get second-scale solve times, so the optimisation can be interactive
 - pypsa for now
 - optimisation solver highs for open source
-- some tricks that may be usedful:
+- some tricks that may be useful:
   - temporal aggregation
   - warm starts (first solve takes a while, subsequent should be fast with minor tweaks)
   - model persistence across runs (only change things that were tweaked to save building time)
   - no milp
 - apparently CPU simplex should be faster than GPU PDLP for small problems like mine?
 
+### data extraction
+- model should have all the data it needs to run components, unless it's pretty easy to fetch during solve, so we have two datatypes:
+  - local data - feasible to keep locally, stored in sqlite db:
+    - electricity timeseries
+    - technoeconomic data
+  - remote data - cannot be kept locally due to size or rapid changes:
+    - atlite cutouts
+- module just has getters and setters for datasets plus caching, other parts don't know if it's local or remote - simply request X data when building Y component
+- reproducible recipes for obtaining data from online sources e.g. zenodo and postprocessing:
+  - first fetch relevant data, then process, for ease of debugging over speed
+- module contents:
+  - dataset registry
+  - recipes for creating datasets
+- local data is built via a script that is run at deployment time
+
+## testing and validation
+### runtime
+- energy balances
+- values within reasonable range
+
+### development
+- pytest
+- smoke test - simple config returns a result
+- dataset building tests
+- known-answer test on a plant (e.g. ultra cheap solar, ultra-cheap grid, ultra-cheap batteries etc.)
+- regression tests - once I get a reasonable result - does it return same results
+- plus tests while debugging
+- first locally, then move to CI once somewhat stable
 
 
 # notes
