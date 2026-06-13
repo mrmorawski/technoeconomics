@@ -5,7 +5,7 @@ inputs and outputs. The first application is in industrial heat.
 - [x] look at single-node PyPSA and whether it'd made sense here
 - [x] set up framework for development - repo, docs etc. etc.
 - [ ] set up skeleton of the architecture above with end-end passthrough so I can hack on the model while testing the frontend
-    - [ ] package structure
+    - [x] package structure
     - [ ] web skeleton - fastapi backend, super simple frontend
     - [ ] model - grid electricity input, heat pump, battery, heat demand, data hardcoded, but with real interfaces
     - [ ] data harvesting skeleton
