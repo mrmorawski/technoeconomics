@@ -364,3 +364,33 @@ combine_header_slug = true
 [project.markdown_extensions.pymdownx.tasklist]
 custom_checkbox = true
 [project.markdown_extensions.pymdownx.tilde]
+
+# ----------------------------------------------------------------------------
+# Plugins configuration
+#
+# mkdocstrings renders the API reference (docs/reference/) from the Google-style
+# docstrings in the source. It is not bundled with Zensical -- it is pulled in
+# via the "mkdocstrings[python]" dev dependency and installed in the docs CI job.
+#
+# Read more: https://zensical.org/docs/setup/extensions/mkdocstrings/
+# ----------------------------------------------------------------------------
+[project.plugins.mkdocstrings.handlers.python]
+paths = ["src"]
+inventories = ["https://docs.python.org/3/objects.inv"]
+
+[project.plugins.mkdocstrings.handlers.python.options]
+docstring_style = "google"
+docstring_section_style = "list"
+filters = ["!^_"]
+heading_level = 2
+merge_init_into_class = true
+separate_signature = true
+show_root_heading = true
+show_signature_annotations = true
+show_source = true
+show_submodules = true
+show_symbol_type_heading = true
+show_symbol_type_toc = true
+# Cross-references in rendered signatures (zensical >= 0.0.17). Resolves type
+# names to their docs, including external types via the inventories above.
+signature_crossrefs = true

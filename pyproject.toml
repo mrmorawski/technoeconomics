@@ -24,6 +24,7 @@ atlite = {git = "https://github.com/mrmorawski/atlite.git", branch="era5-ncar-th
 
 [dependency-groups]
 dev = [
+    "mkdocstrings[python]>=0.27",
     "notebook>=7.5.7",
     "pre-commit>=4.6.0",
     "ruff>=0.15.17",
@@ -36,3 +37,23 @@ packages = ["src/technoeconomics"]
 
 [tool.fastapi]
 entrypoint = "technoeconomics.web.main:app"
+
+[tool.ruff.lint]
+extend-select = ["D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["D104"]
+"tests/**" = ["D"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.pydoclint]
+style = "google"
+# no types in docstrings, they're in the function signatures already
+arg-type-hints-in-docstring = false
+check-return-types = false
+check-yield-types = false

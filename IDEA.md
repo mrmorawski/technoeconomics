@@ -2,15 +2,27 @@ The point of this project is to create an online tool for running technoeconomic
 inputs and outputs. The first application is in industrial heat.
 
 # TODO
+## dev
 - [x] look at single-node PyPSA and whether it'd made sense here
 - [x] set up framework for development - repo, docs etc. etc.
 - [ ] set up skeleton of the architecture above with end-end passthrough so I can hack on the model while testing the frontend
     - [x] package structure
-    - [ ] web skeleton - fastapi backend, super simple frontend
-    - [ ] model - grid electricity input, heat pump, battery, heat demand, data hardcoded, but with real interfaces
-    - [ ] data harvesting skeleton
+    - [x] web skeleton - fastapi backend, super simple frontend
+    - [ ] model:
+      - [ ] template class + simple template (grid electricity constant input, heat pump, battery, heat demand)
+      - [ ] component class + basic components for simple template
+      - [ ] template parser
+      - [ ] plantconfig definition
+    - [ ] model -> frontend connection
     - [ ] deploy
+    - [ ] data harvesting skeleton
 - [ ] iterate by adding features - set up GH issues and implement one by one
+
+## learning
+- [ ] jinja2 guide
+- [ ] picocss guide
+- [ ] htmx guide
+- [ ] classes and inheritance in fluent python
 
 # Inspiration
 - http://model.energy - does the same for energy systems
@@ -60,13 +72,22 @@ Current idea is simple MVC:
 - small and performant
 - boring technologies
 
+## branding
+### name
+- varie-tea (spelled as varie-🍵)
+
+### logo
+- some sort of tea emoji with a prominent steam to symbolise heat?
+
 ## frontend
 ### web
 - jinja templates rendered server-side
-- htmx with nojs fallback
+- simple styling with picocss
+- htmx with nojs fallback for updating model w.o. redirects
 - charts: for now server-side svg, later some nice chart lib
 - by default exposes only a few params to user (marked in template), but almost any can be dug into if needed
 - navbar:
+  - home
   - one entry per template
   - about
   - link to docs
@@ -105,6 +126,8 @@ Current idea is simple MVC:
 
 ## docs
 - zensical
+- google docstyle
+- pre-commit CI testingk
 - short screencast on how to use
 
 ## dev

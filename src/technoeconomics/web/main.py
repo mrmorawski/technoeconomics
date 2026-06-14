@@ -1,3 +1,5 @@
+"""FastAPI application: routes and template wiring for the web frontend."""
+
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -17,16 +19,19 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
+    """Render the home page."""
     return templates.TemplateResponse(request, "index.jinja")
 
 
 @app.get("/about", response_class=HTMLResponse)
 async def about(request: Request):
+    """Render the about page."""
     return templates.TemplateResponse(request, "about.jinja")
 
 
 @app.get("/docs", response_class=RedirectResponse)
 async def docs(request: Request):
+    """Redirect to the published documentation site."""
     return RedirectResponse(
         "https://mrmorawski.github.io/technoeconomics/getting-started/"
     )

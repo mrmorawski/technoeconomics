@@ -30,6 +30,12 @@ repos:
         args: [--fix]
       - id: ruff-format
 
+  # ── pydoclint: docstring ↔ signature consistency (Google style) ───
+  - repo: https://github.com/jsh9/pydoclint
+    rev: 0.8.6
+    hooks:
+      - id: pydoclint
+
   # ── uv: keep the lockfile honest ──────────────────────────────────
   - repo: https://github.com/astral-sh/uv-pre-commit
     rev: 0.11.21
@@ -59,11 +65,11 @@ repos:
       - id: typos                      # scope + ignores configured in _typos.toml
 
   # ── Jinja/HTML templates (djlint) ─────────────────────────────────
-  # - repo: https://github.com/djlint/djLint
-  #   rev: v1.36.4                      # check latest
-  #   hooks:
-  #     - id: djlint-jinja             # lint only
-  #     # - id: djlint-reformat-jinja  # auto-format (watch htmx attr wrapping)
+  - repo: https://github.com/djlint/djLint
+    rev: v1.36.4                      # check latest
+    hooks:
+      - id: djlint-jinja             # lint only
+      - id: djlint-reformat-jinja  # auto-format (watch htmx attr wrapping)
 
   # ── Commit message: Conventional Commits ──────────────────────────
   - repo: https://github.com/compilerla/conventional-pre-commit
