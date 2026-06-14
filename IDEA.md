@@ -125,6 +125,9 @@ Current idea is simple MVC:
   - detailed results stored as nc, then purged (rerun if asked for job again)
 - process pool for running solve jobs, later can update to workers and a job queue if needed
 - how to handle rate limiting and multiple users?
+- lifetime management:
+  - load data
+  - ...
 
 
 ## model
