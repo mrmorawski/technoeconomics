@@ -50,8 +50,8 @@ nav = [
   { "CLI Usage Guide" = "usage-guide.md" },
   { "Concepts" = [
       { "Overview" = "concepts/index.md" },
-      { "Templates" = "concepts/templates.md" },
-      { "Components" = "concepts/components.md" },
+      { "Template" = "concepts/template.md" },
+      { "Component" = "concepts/component.md" },
       { "Optimisation" = "concepts/optimisation.md" },
   ] },
   { "Reference" = [
