@@ -1,0 +1,36 @@
+<svg viewBox="0 0 720 280"
+     role="img"
+     aria-label="Industrial heat plant schematic"
+     xmlns="http://www.w3.org/2000/svg">
+    <line class="rail" x1="20" y1="90" x2="700" y2="90" />
+    <text class="rail-label" x="20" y="80">electricity</text>
+    <line class="rail" x1="20" y1="200" x2="700" y2="200" />
+    <text class="rail-label" x="20" y="190">heat</text>
+    <g class="component grid">
+        <line class="wire" x1="95" y1="68" x2="95" y2="90" />
+        <rect x="40" y="24" width="110" height="44" rx="6" />
+        <text x="95" y="46">Grid</text>
+    </g>
+    <g class="component battery">
+        <line class="wire" x1="255" y1="68" x2="255" y2="90" />
+        <rect x="200" y="24" width="110" height="44" rx="6" />
+        <text x="255" y="46">Battery</text>
+    </g>
+    <g class="component heat_pump">
+        <line class="wire" x1="375" y1="90" x2="375" y2="123" />
+        <line class="wire" x1="375" y1="167" x2="375" y2="200" />
+        <rect x="320" y="123" width="110" height="44" rx="6" />
+        <text x="375" y="145">Heat pump</text>
+    </g>
+    <g class="component electric_boiler">
+        <line class="wire" x1="515" y1="90" x2="515" y2="123" />
+        <line class="wire" x1="515" y1="167" x2="515" y2="200" />
+        <rect x="450" y="123" width="130" height="44" rx="6" />
+        <text x="515" y="145">Electric boiler</text>
+    </g>
+    <g class="component heat_demand">
+        <line class="wire" x1="645" y1="200" x2="645" y2="224" />
+        <rect x="590" y="224" width="110" height="44" rx="6" />
+        <text x="645" y="246">Heat demand</text>
+    </g>
+</svg>
