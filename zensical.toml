@@ -52,10 +52,13 @@ nav = [
       { "Overview" = "concepts/index.md" },
       { "Template" = "concepts/template.md" },
       { "Component" = "concepts/component.md" },
+      { "Data" = "concepts/data.md" },
+      { "Model" = "concepts/model.md" },
       { "Optimisation" = "concepts/optimisation.md" },
   ] },
-  { "Reference" = [
-      { "API" = "reference/index.md" },
+  { "API Reference" = [
+      { "Complete API" = "reference/index.md" },
+      { "Dataset" = "reference/data.md" },
   ] },
   { "Development" = "development.md" },
 ]
