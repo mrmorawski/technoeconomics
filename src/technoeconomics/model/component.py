@@ -3,41 +3,56 @@
 
 A model is composed of components connected through carriers.
 
-``Component``, combined with ``Dataset``, enables for easy construction of
-reusable and composable blocks, and for quickly building models. Users don't need to worry about
-specifics of modelling a given technology, and don't need to source data for it.
+Each technoeconomic parameter accepts either a literal value or a
+[`Dataset`][technoeconomics.data.Dataset] -- a lazy, serialisable handle resolved
+to a concrete value before the network is built -- so users need not source data
+by hand. Each field spells out exactly what it accepts (mirroring the
+``float | pd.Series`` values PyPSA itself takes), so the choice is explicit and the
+type checker enforces it:
 
-For example, grid electricity for an industrial consumer in Spain can be modelled as:
+- a scalar parameter: ``float | ScalarDataset``
+- a time-varying parameter: ``float | Timeseries | SeriesDataset`` (a constant
+  ``float`` broadcasts; [`Timeseries`][technoeconomics.data.Timeseries] is
+  ``np.ndarray | pd.Series | Sequence[float]``)
+
+A field may of course be narrower (e.g. just ``float``). Passing a ``SeriesDataset``
+where a ``ScalarDataset`` is expected is a type error.
+
+Authoring a component is just writing a dataclass of parameters plus
+``add_to_network``. By the time it runs, every field already holds a concrete value
+(resolution happens once in the model -- see
+[`resolve_datasets`][technoeconomics.data.resolve_datasets]), so the method simply
+reads ``self.<field>``; it never touches the data layer. Serialisation is inherited.
 
 ```python
-from technoeconomics.data import GridElectricityDataset
+from technoeconomics.data import Constant, Sinusoidal
+from technoeconomics.model.structure import Bus
 
-grid_electricity = GridElectricity(
-    price=GridElectricityDataset(loc=(40, -4), consumer_type="industrial")
+electricity = Bus(id="electricity", carrier="electricity")
+heat = Bus(id="heat", carrier="heat")
+
+heat_pump = HeatPump(electricity_bus=electricity, heat_bus=heat, capex=Constant(900))
+grid = GridElectricity(
+    bus=electricity, price=Sinusoidal(mean=120, amplitude=40, period=24)
 )
 ```
-
-A residential air source heat pump located in Germany:
-
-```python
-from technoeconomics.data import WeatherDataset, CostDataset
-
-heat_pump = HeatPump(
-    price=CostDataset(
-        item="heat_pump.residential",
-        T_supply=20,
-        T_demand=WeatherDataset("temp_surface", loc=(52, 13)),
-    )
-)
-```
-
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar
+from dataclasses import dataclass, fields
+from typing import TYPE_CHECKING
 
+import numpy as np
+import pandas as pd
+
+from technoeconomics.data import (
+    Dataset,
+    ScalarDataset,
+    SeriesDataset,
+    Timeseries,
+    concrete_subclasses,
+)
 from technoeconomics.model.structure import Bus
 
 if TYPE_CHECKING:
@@ -46,7 +61,7 @@ if TYPE_CHECKING:
 
 @dataclass(kw_only=True)
 class Component:
-    """Base for all components: shared identity plus the build contract.
+    """Base for all components: shared identity, serialisation, and the build contract.
 
     Currently components are a thin layer on top of [PyPSA Network Components](https://docs.pypsa.org/latest/user-guide/design/#network-components).
 
@@ -66,43 +81,86 @@ class Component:
     | `Storage`   | `StorageUnit`   |
     | `Output`    | `Load`          |
 
-    A component is dataclass containing relevant technoeconomic parameters, and
-    ``add_to_network()`` - a recipe for building a PyPSA component integrated into a model.
+    A component is a dataclass of technoeconomic parameters plus ``add_to_network()``
+    -- a recipe for building a PyPSA component integrated into a model.
 
     Attributes:
-        default_id: Base name used to auto-generate `id`. Defaults to the snake-case
-            class name when left blank (see [`Plant`][technoeconomics.model.plant.Plant]).
         id: Unique name within the plant; used as the PyPSA component name and as
             its own carrier, so results are attributable per component. Optional --
-            if left blank, the plant assigns one from `default_id`, enumerating
-            (e.g. ``heat_pump``, ``heat_pump_2``) when a type appears more than once.
+            if left blank, the plant assigns one from the snake-case class name,
+            enumerating (e.g. ``heat_pump``, ``heat_pump_2``) when a type appears
+            more than once.
         enabled: If False, the component is skipped when the network is built.
     """
-
-    default_id: ClassVar[str] = ""
 
     id: str = ""
     enabled: bool = True
 
     def add_to_network(self, n: pypsa.Network) -> None:
-        """Expand this component into one or more PyPSA elements on `n`."""
+        """Expand this component into one or more PyPSA elements on `n`.
+
+        Called on a copy whose dataset fields have already been resolved, so
+        ``self.<field>`` yields a concrete number or snapshot-aligned series.
+        """
         raise NotImplementedError
+
+    def to_dict(self) -> dict:
+        """Serialise to a plain dict.
+
+        Bus refs become ids, unresolved datasets become tagged dicts, and resolved
+        arrays (from a resolved plant) become plain lists; floats pass through. The
+        same method therefore serialises both a recipe plant (dataset specs) and a
+        resolved plant (values baked in).
+        """
+        out: dict = {"__type__": type(self).__name__}
+        for f in fields(self):
+            v = getattr(self, f.name)
+            if isinstance(v, Bus):
+                out[f.name] = {"__bus__": v.id}
+            elif isinstance(v, Dataset):
+                out[f.name] = v.to_dict()
+            elif isinstance(v, (pd.Series, np.ndarray)):
+                out[f.name] = v.tolist()
+            else:
+                out[f.name] = v
+        return out
+
+    @classmethod
+    def from_dict(cls, d: dict, buses: dict[str, Bus]) -> Component:
+        """Reconstruct a component, relinking bus refs by id and rebuilding datasets.
+
+        Args:
+            d: A dict produced by [`to_dict`][technoeconomics.model.component.Component.to_dict].
+            buses: The plant's buses keyed by id, used to relink bus references.
+
+        Returns:
+            The reconstructed component.
+        """
+        target = concrete_subclasses(Component)[d["__type__"]]
+        kwargs: dict = {}
+        for k, v in d.items():
+            if k == "__type__":
+                continue
+            if isinstance(v, dict) and "__bus__" in v:
+                kwargs[k] = buses[v["__bus__"]]
+            elif isinstance(v, dict) and "__dataset__" in v:
+                kwargs[k] = Dataset.from_dict(v)
+            else:
+                kwargs[k] = v
+        return target(**kwargs)
 
 
 @dataclass(kw_only=True)
 class GridElectricity(Component):
-    """Grid connection injecting electricity at a constant price.
+    """Grid connection injecting electricity at a (possibly time-varying) price.
 
     Attributes:
-        default_id: Base name used to auto-generate `id`.
         bus: Electricity bus to inject into.
         price: Marginal cost of electricity [EUR/MWh].
     """
 
-    default_id: ClassVar[str] = "grid"
-
     bus: Bus
-    price: float = 120.0
+    price: float | Timeseries | SeriesDataset = 120.0
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `Generator` injecting electricity at `price`."""
@@ -118,22 +176,19 @@ class GridElectricity(Component):
 
 @dataclass(kw_only=True)
 class HeatPump(Component):
-    """Electricity-to-heat conversion (a PyPSA `Process`) with a constant COP.
+    """Electricity-to-heat conversion (a PyPSA `Process`) with a constant or varying COP.
 
     Attributes:
-        default_id: Base name used to auto-generate `id`.
         electricity_bus: Bus the heat pump draws electricity from (input).
         heat_bus: Bus the heat pump delivers heat to (output).
         cop: Coefficient of performance.
         capex: Annuitised investment cost [EUR/MW of electricity input].
     """
 
-    default_id: ClassVar[str] = "heat_pump"
-
     electricity_bus: Bus
     heat_bus: Bus
-    cop: float = 3.0
-    capex: float = 900.0
+    cop: float | Timeseries | SeriesDataset = 3.0
+    capex: float | ScalarDataset = 900.0
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `Process` converting electricity (`rate0=-1`) to heat (`rate1=cop`)."""
@@ -154,17 +209,14 @@ class Battery(Component):
     """Electricity storage with a fixed energy-to-power ratio.
 
     Attributes:
-        default_id: Base name used to auto-generate `id`.
         bus: Electricity bus the battery attaches to.
         max_hours: Storage duration at rated power [h].
         capex: Annuitised investment cost [EUR/MW].
     """
 
-    default_id: ClassVar[str] = "battery"
-
     bus: Bus
-    max_hours: float = 4.0
-    capex: float = 12000.0
+    max_hours: float | ScalarDataset = 4.0
+    capex: float | ScalarDataset = 12000.0
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `StorageUnit` on the electricity bus."""
@@ -185,15 +237,12 @@ class HeatDemand(Component):
     """A heat demand (load) on a heat bus.
 
     Attributes:
-        default_id: Base name used to auto-generate `id`.
         bus: Heat bus the demand is drawn from.
         load: Heat demand [MW].
     """
 
-    default_id: ClassVar[str] = "heat_demand"
-
     bus: Bus
-    load: float = 10.0
+    load: float | Timeseries | SeriesDataset = 10.0
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `Load` representing the heat demand."""
