@@ -1,0 +1,43 @@
+{% extends "base.jinja" %}
+{% block title %}
+    {{ title }} — technoeconomics.app
+{% endblock title %}
+{% block content %}
+    <section>
+        <h1>{{ title }}</h1>
+        <p>{{ description }}</p>
+        <figure class="schematic">
+            {# Schematic SVG is inlined from the template (backend/template/schematics). #}
+            {{ schematic | safe }}
+        </figure>
+        {# Form fields are generated from the plant — see web/forms.plant_to_form. #}
+        <form hx-post="{{ url_for('solve_submit') }}"
+              hx-target="#results"
+              hx-swap="outerHTML">
+            <div class="grid">
+                {% for component in components %}
+                    <fieldset {% if component.color %}style="border-inline-start: 4px solid {{ component.color }}; padding-inline-start: 1rem"{% endif %}>
+                        <legend {% if component.color %}style="color: {{ component.color }}"{% endif %}>{{ component.title }}</legend>
+                        <label>
+                            <input type="checkbox"
+                                   name="{{ component.id }}.enabled"
+                                   {% if component.enabled %}checked{% endif %}>
+                            Enabled
+                        </label>
+                        {% for field in component.fields %}
+                            <label>
+                                {{ field.label }}
+                                <input type="number"
+                                       name="{{ field.name }}"
+                                       value="{{ field.value }}"
+                                       step="any">
+                            </label>
+                        {% endfor %}
+                    </fieldset>
+                {% endfor %}
+            </div>
+            <button type="submit">Solve</button>
+        </form>
+        <div id="results"></div>
+    </section>
+{% endblock content %}

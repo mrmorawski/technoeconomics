@@ -1,0 +1,8 @@
+{# Polling fragment: re-fetches the job status ~every second until it is done. #}
+<div id="results"
+     hx-get="{{ url_for('solve_status', job_id=job_id) }}"
+     hx-trigger="load delay:1s"
+     hx-swap="outerHTML">
+    <progress></progress>
+    <p>Solving… this can take around ten seconds.</p>
+</div>

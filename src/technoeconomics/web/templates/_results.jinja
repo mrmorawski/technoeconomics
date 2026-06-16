@@ -1,0 +1,52 @@
+{# Terminal fragment: the headline numbers and energy-balance charts, or an error. #}
+<div id="results">
+    {% if error %}
+        <p role="alert">Solve failed: {{ error }}</p>
+    {% else %}
+        {% if numbers %}
+            <div class="numbers">
+                {% for n in numbers %}
+                    <article>
+                        <small>{{ n.label }}</small>
+                        <strong>{{ "{:,.0f}".format(n.value) }} {{ n.unit }}</strong>
+                    </article>
+                {% endfor %}
+            </div>
+        {% endif %}
+        <h3>Energy balances</h3>
+        {% for cfg in plots %}
+            <div class="result-plot" id="chart-{{ loop.index0 }}"></div>
+        {% endfor %}
+        {# htmx executes this script after the swap; ECharts is loaded in base.jinja. #}
+        <script>
+            (function () {
+                // A theme so chart text/axes follow the page (else dark-on-dark).
+                const text = getComputedStyle(document.body).color;
+                const line = getComputedStyle(document.documentElement)
+                    .getPropertyValue("--pico-muted-border-color").trim() || "#888";
+                const axis = {
+                    axisLine: {lineStyle: {color: line}},
+                    axisLabel: {color: text},
+                    splitLine: {lineStyle: {color: line, opacity: 0.4}},
+                };
+                echarts.registerTheme("pico", {
+                    textStyle: {color: text},
+                    title: {textStyle: {color: text}},
+                    legend: {textStyle: {color: text}},
+                    timeAxis: axis,
+                    valueAxis: axis,
+                });
+
+                const options = {{ plots | tojson }};
+                const charts = options.map(function (opt, i) {
+                    const chart = echarts.init(document.getElementById("chart-" + i), "pico");
+                    chart.setOption(opt);
+                    return chart;
+                });
+                window.addEventListener("resize", function () {
+                    charts.forEach(function (c) { c.resize(); });
+                });
+            })();
+        </script>
+    {% endif %}
+</div>
