@@ -97,7 +97,7 @@ class Plant:
         for carrier in {b.carrier for b in self.buses}:
             n.add("Carrier", carrier)
         for c in enabled:
-            n.add("Carrier", c.id)
+            n.add("Carrier", c.id, **({"color": c.plot_color} if c.plot_color else {}))
 
         for b in self.buses:
             n.add("Bus", b.id, carrier=b.carrier)

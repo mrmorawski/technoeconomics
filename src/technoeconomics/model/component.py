@@ -3,27 +3,6 @@
 
 A model is composed of components connected through carriers.
 
-Each technoeconomic parameter accepts either a literal value or a
-[`Dataset`][technoeconomics.data.Dataset] -- a lazy, serialisable handle resolved
-to a concrete value before the network is built -- so users need not source data
-by hand. Each field spells out exactly what it accepts (mirroring the
-``float | pd.Series`` values PyPSA itself takes), so the choice is explicit and the
-type checker enforces it:
-
-- a scalar parameter: ``float | ScalarDataset``
-- a time-varying parameter: ``float | Timeseries | SeriesDataset`` (a constant
-  ``float`` broadcasts; [`Timeseries`][technoeconomics.data.Timeseries] is
-  ``np.ndarray | pd.Series | Sequence[float]``)
-
-A field may of course be narrower (e.g. just ``float``). Passing a ``SeriesDataset``
-where a ``ScalarDataset`` is expected is a type error.
-
-Authoring a component is just writing a dataclass of parameters plus
-``add_to_network``. By the time it runs, every field already holds a concrete value
-(resolution happens once in the model -- see
-[`resolve_datasets`][technoeconomics.data.resolve_datasets]), so the method simply
-reads ``self.<field>``; it never touches the data layer. Serialisation is inherited.
-
 ```python
 from technoeconomics.data import Constant, Sinusoidal
 from technoeconomics.model.structure import Bus
@@ -41,6 +20,7 @@ grid = GridElectricity(
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -57,6 +37,21 @@ from technoeconomics.model.structure import Bus
 
 if TYPE_CHECKING:
     import pypsa
+
+
+class PlotColor(StrEnum):
+    """A curated palette for component colours in result plots."""
+
+    BLUE = "#1f77b4"
+    ORANGE = "#ff7f0e"
+    GREEN = "#2ca02c"
+    RED = "#d62728"
+    PURPLE = "#9467bd"
+    BROWN = "#8c564b"
+    PINK = "#e377c2"
+    GREY = "#7f7f7f"
+    OLIVE = "#bcbd22"
+    CYAN = "#17becf"
 
 
 @dataclass(kw_only=True)
@@ -91,10 +86,13 @@ class Component:
             enumerating (e.g. ``heat_pump``, ``heat_pump_2``) when a type appears
             more than once.
         enabled: If False, the component is skipped when the network is built.
+        plot_color: Colour for this component's flows in result plots. If None, PyPSA
+            assigns one when the network is sanitised.
     """
 
     id: str = ""
     enabled: bool = True
+    plot_color: PlotColor | None = None
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Expand this component into one or more PyPSA elements on `n`.
@@ -105,13 +103,7 @@ class Component:
         raise NotImplementedError
 
     def to_dict(self) -> dict:
-        """Serialise to a plain dict.
-
-        Bus refs become ids, unresolved datasets become tagged dicts, and resolved
-        arrays (from a resolved plant) become plain lists; floats pass through. The
-        same method therefore serialises both a recipe plant (dataset specs) and a
-        resolved plant (values baked in).
-        """
+        """Serialise to a plain dict."""
         out: dict = {"__type__": type(self).__name__}
         for f in fields(self):
             v = getattr(self, f.name)
@@ -161,6 +153,8 @@ class GridElectricity(Component):
 
     bus: Bus
     price: float | Timeseries | SeriesDataset = 120.0
+    max_capacity: float | ScalarDataset = 1000
+    capex: float | ScalarDataset = 0
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `Generator` injecting electricity at `price`."""
@@ -170,6 +164,8 @@ class GridElectricity(Component):
             bus=self.bus.id,
             carrier=self.id,
             marginal_cost=self.price,
+            capital_cost=self.capex,
+            p_max=self.max_capacity,
             p_nom_extendable=True,
         )
 
@@ -199,6 +195,36 @@ class HeatPump(Component):
             bus1=self.heat_bus.id,
             carrier=self.id,
             rate1=self.cop,
+            capital_cost=self.capex,
+            p_nom_extendable=True,
+        )
+
+
+@dataclass(kw_only=True)
+class ElectricBoiler(Component):
+    """Electric resistance heating: cheap to install but ~unity efficiency.
+
+    Attributes:
+        electricity_bus: Bus the boiler draws electricity from (input).
+        heat_bus: Bus the boiler delivers heat to (output).
+        efficiency: Heat out per unit electricity in.
+        capex: Annuitised investment cost [EUR/MW of electricity input].
+    """
+
+    electricity_bus: Bus
+    heat_bus: Bus
+    efficiency: float | Timeseries | SeriesDataset = 0.99
+    capex: float | ScalarDataset = 100.0
+
+    def add_to_network(self, n: pypsa.Network) -> None:
+        """Add a `Process` converting electricity to heat at `efficiency`."""
+        n.add(
+            "Process",
+            self.id,
+            bus0=self.electricity_bus.id,
+            bus1=self.heat_bus.id,
+            carrier=self.id,
+            rate1=self.efficiency,
             capital_cost=self.capex,
             p_nom_extendable=True,
         )
