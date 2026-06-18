@@ -12,8 +12,8 @@ package:
 
 Documentation is also structured along those levels of abstraction:
 
-- [Template](./template.md): how to use the various user interfaces to run pre-built templates -> how to build your own templates -> implementation details of the `Template` class
-- [Component](./component.md): descriptions of components available to build templates -> how to build your own components -> implementation details of the `Component` class
+- [Preset](./preset.md): how to use the various user interfaces to run pre-built presets -> how to build your own presets -> implementation details of the `Preset` class
+- [Component](./component.md): descriptions of components available to build presets -> how to build your own components -> implementation details of the `Component` class
 - [Data](./data.md): description of datasets that you can use in your components -> instructions for adding new ones -> implementation details of the `Dataset` class
 - [Model](./model.md): deep dive into the way that models are built and implemented
 

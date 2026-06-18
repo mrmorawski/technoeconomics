@@ -1,4 +1,4 @@
-"""Template base: a curated preset pairing a default plant with how to present it."""
+"""Preset base: a curated preset pairing a default plant with how to present it."""
 
 from __future__ import annotations
 
@@ -9,10 +9,10 @@ from technoeconomics.backend.results import Number, Plot
 from technoeconomics.model.plant import Plant
 
 
-class Template:
+class Preset:
     """A named preset: a default plant plus its presentation.
 
-    The template *completes* a model: alongside the default plant and its copy it
+    The preset *completes* a model: alongside the default plant and its copy it
     declares which results to present -- the `plots` and `numbers` the frontend should
     show once the plant is solved.
 
@@ -33,7 +33,7 @@ class Template:
     numbers: ClassVar[list[Number]] = []
 
     def build(self) -> Plant:
-        """Return a fresh default plant for this template."""
+        """Return a fresh default plant for this preset."""
         raise NotImplementedError
 
     def schematic_svg(self) -> str:

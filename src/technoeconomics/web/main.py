@@ -1,4 +1,4 @@
-"""FastAPI application: routes, a solve thread pool, and template wiring."""
+"""FastAPI application: routes, a solve thread pool, and preset wiring."""
 
 from collections.abc import AsyncIterator
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from technoeconomics.backend.results import Number, Plot, numbers, plots
-from technoeconomics.backend.template import IndustrialHeat
+from technoeconomics.backend.preset import IndustrialHeat
 from technoeconomics.model.plant import Plant
 from technoeconomics.web.forms import form_to_plant, plant_to_form
 
@@ -90,38 +90,38 @@ async def docs(request: Request):
 @app.get("/industrial_heat", response_class=HTMLResponse)
 async def industrial_heat(request: Request):
     """Render the industrial-heat model page (schematic, generated form, solve)."""
-    template = IndustrialHeat()
+    preset = IndustrialHeat()
     return templates.TemplateResponse(
         request,
-        "template.jinja",
+        "preset.jinja",
         {
-            "title": template.title,
-            "description": template.description,
-            "schematic": template.schematic_svg(),
-            "components": plant_to_form(template.build()),
+            "title": preset.title,
+            "description": preset.description,
+            "schematic": preset.schematic_svg(),
+            "components": plant_to_form(preset.build()),
         },
     )
 
 
 @app.post("/industrial_heat/solve", response_class=HTMLResponse)
 async def solve_submit(request: Request):
-    """Apply the form onto a fresh template plant, then queue a solve.
+    """Apply the form onto a fresh preset plant, then queue a solve.
 
-    The route's template (industrial heat) supplies the structure and the results to
+    The route's preset (industrial heat) supplies the structure and the results to
     compute; the form supplies the edited parameters.
     """
-    template = IndustrialHeat()
+    preset = IndustrialHeat()
     form = await request.form()
     values = {k: v for k, v in form.items() if isinstance(v, str)}
     try:
-        plant = form_to_plant(template.build(), values)
+        plant = form_to_plant(preset.build(), values)
     except ValueError as exc:
         return templates.TemplateResponse(
             request, "_results.jinja", {"error": str(exc)}
         )
     job_id = uuid4().hex
     _jobs[job_id] = _pool.submit(
-        _solve, plant, list(template.numbers), list(template.plots)
+        _solve, plant, list(preset.numbers), list(preset.plots)
     )
     return templates.TemplateResponse(request, "_job.jinja", {"job_id": job_id})
 

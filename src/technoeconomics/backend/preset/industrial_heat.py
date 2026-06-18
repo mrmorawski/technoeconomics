@@ -1,4 +1,4 @@
-"""The industrial process heat template."""
+"""The industrial process heat preset."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import ClassVar
 
 from technoeconomics.backend.results import Number, Plot
-from technoeconomics.backend.template.base import Template
+from technoeconomics.backend.preset.base import Preset
 from technoeconomics.data import Sinusoidal
 from technoeconomics.model.component import (
     Battery,
@@ -20,7 +20,7 @@ from technoeconomics.model.plant import Plant, annual_snapshots
 from technoeconomics.model.structure import Bus
 
 
-class IndustrialHeat(Template):
+class IndustrialHeat(Preset):
     """Industrial process heat: grid power, a heat pump vs an electric boiler, a battery, heat demand."""
 
     name: ClassVar[str] = "industrial_heat"

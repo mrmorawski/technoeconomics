@@ -12,13 +12,13 @@ if TYPE_CHECKING:
 
 
 class Number(StrEnum):
-    """A headline number a template can request."""
+    """A headline number a preset can request."""
 
     PROJECT_COST = auto()
 
 
 class Plot(StrEnum):
-    """A chart a template can request."""
+    """A chart a preset can request."""
 
     ENERGY_BALANCE = auto()
 

@@ -3,9 +3,9 @@
 The form is the user's source of truth for a model's editable parameters.
 
 - [`plant_to_form`][technoeconomics.web.forms.plant_to_form] turns a plant into field
-  descriptors the template renders.
+  descriptors the preset page renders.
 - [`form_to_plant`][technoeconomics.web.forms.form_to_plant] writes a submission back
-  onto a fresh template plant (the structure) and returns it.
+  onto a fresh preset plant (the structure) and returns it.
 """
 
 from __future__ import annotations
@@ -84,14 +84,14 @@ def plant_to_form(plant: Plant) -> list[ComponentForm]:
 
 
 def form_to_plant(plant: Plant, form: Mapping[str, str]) -> Plant:
-    """Write a submission onto a fresh template plant and return it.
+    """Write a submission onto a fresh preset plant and return it.
 
     Form fields are named ``"<component_id>.<field>"``; a component's ``enabled``
     checkbox is present only when ticked. The edited scalars are set directly on the
     plant's (mutable) components.
 
     Args:
-        plant: A fresh plant (from the template) supplying the structure and defaults.
+        plant: A fresh plant (from the preset) supplying the structure and defaults.
         form: The submitted form values.
 
     Returns:
