@@ -14,6 +14,7 @@ dependencies = [
     "atlite",
     "pypsa>=1.2.2",
     "fastapi[standard-no-fastapi-cloud-cli]",
+    "cachetools>=7.1.4",
 ]
 authors = [
   {name = "Marcin Morawski", email = "me@marcin.website"}

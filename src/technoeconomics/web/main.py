@@ -1,60 +1,31 @@
-"""FastAPI application: routes, a solve thread pool, and preset wiring."""
+"""FastAPI application: routes, per-session state, and preset wiring."""
 
+import logging
 from collections.abc import AsyncIterator
-from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
-from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from technoeconomics.backend.results import Number, Plot, numbers, plots
 from technoeconomics.backend.preset import IndustrialHeat
-from technoeconomics.model.plant import Plant
+from technoeconomics.web import sessions
 from technoeconomics.web.forms import form_to_plant, plant_to_form
 
 BASE_DIR = Path(__file__).resolve().parent
 
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
-# Background solves: a small thread pool with each job's future kept by id for polling.
-_pool = ThreadPoolExecutor(max_workers=2)
-_jobs: dict[str, Future] = {}
-
-
-def _solve(
-    plant: Plant, number_reqs: list[Number], plot_reqs: list[Plot]
-) -> dict:
-    """Build, optimise, and read out a plant's results. Runs in a worker thread.
-
-    Args:
-        plant: The plant to solve.
-        number_reqs: The headline numbers to compute.
-        plot_reqs: The charts to compute.
-
-    Returns:
-        ``{"numbers": [...], "plots": [...]}`` -- ready for the page.
-
-    Raises:
-        RuntimeError: If the optimisation does not reach an optimal solution.
-    """
-    n = plant.build_network()
-    status, condition = n.optimize(solver_name="highs")
-    if status != "ok":
-        raise RuntimeError(f"solve failed: status={status}, condition={condition}")
-    n.sanitize()  # assign colours to any carriers that lack one
-    return {"numbers": numbers(n, number_reqs), "plots": plots(n, plot_reqs)}
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Shut the solve pool down cleanly when the app stops."""
+    """Surface the solve's INFO logs (`solve()` calls) to the live console."""
+    logging.getLogger("technoeconomics").setLevel(logging.INFO)
     yield
-    _pool.shutdown(cancel_futures=True)
 
 
 app = FastAPI(
@@ -89,62 +60,94 @@ async def docs(request: Request):
 
 @app.get("/industrial_heat", response_class=HTMLResponse)
 async def industrial_heat(request: Request):
-    """Render the industrial-heat model page (schematic, generated form, solve)."""
+    """Render the model page, ensuring the visitor has a session to edit and solve.
+
+    A first-time visitor has no ``sid`` cookie, so we mint a session holding a fresh
+    default plant and set the cookie on the way out. A returning visitor's cookie points
+    at their stored plant (with any edits from earlier solves), so the form reflects it.
+    """
     preset = IndustrialHeat()
-    return templates.TemplateResponse(
+    session = sessions.get(request.cookies.get("sid"))
+    new_sid = None
+    if session is None:
+        new_sid, session = sessions.create(preset.build())
+
+    response = templates.TemplateResponse(
         request,
         "preset.jinja",
         {
             "title": preset.title,
             "description": preset.description,
             "schematic": preset.schematic_svg(),
-            "components": plant_to_form(preset.build()),
+            "components": plant_to_form(session.plant),
         },
     )
+    if new_sid is not None:
+        response.set_cookie("sid", new_sid, httponly=True, samesite="lax")
+    return response
 
 
-@app.post("/industrial_heat/solve", response_class=HTMLResponse)
-async def solve_submit(request: Request):
-    """Apply the form onto a fresh preset plant, then queue a solve.
+@app.post("/industrial_heat/init_solve", response_class=HTMLResponse)
+async def industrial_heat_init_solve(request: Request):
+    """Record the edited plant on the session; the page then opens the stream to solve it.
 
-    The route's preset (industrial heat) supplies the structure and the results to
-    compute; the form supplies the edited parameters.
+    No solve runs here -- this only overlays the submitted form onto the session's plant
+    and returns the fragment that opens the EventSource. The solve is started by
+    ``/stream_solve`` when the browser connects, so an unopened stream leaves no orphaned
+    solve running.
     """
-    preset = IndustrialHeat()
+    session = sessions.get(request.cookies.get("sid"))
+    if session is None:
+        return templates.TemplateResponse(
+            request, "_solving.jinja", {"error": "Session expired -- reload the page."}
+        )
     form = await request.form()
     values = {k: v for k, v in form.items() if isinstance(v, str)}
     try:
-        plant = form_to_plant(preset.build(), values)
+        session.plant = form_to_plant(session.plant, values)
     except ValueError as exc:
         return templates.TemplateResponse(
-            request, "_results.jinja", {"error": str(exc)}
+            request, "_solving.jinja", {"error": str(exc)}
         )
-    job_id = uuid4().hex
-    _jobs[job_id] = _pool.submit(
-        _solve, plant, list(preset.numbers), list(preset.plots)
-    )
-    return templates.TemplateResponse(request, "_job.jinja", {"job_id": job_id})
+    return templates.TemplateResponse(request, "_solving.jinja", {})
 
 
-@app.get("/solve/{job_id}", response_class=HTMLResponse)
-async def solve_status(request: Request, job_id: str):
-    """Report a solve job's state: keep polling, or swap in the result/error."""
-    future = _jobs.get(job_id)
-    if future is None:
-        return templates.TemplateResponse(
-            request, "_results.jinja", {"error": "Unknown or expired job."}
-        )
-    if not future.done():
-        return templates.TemplateResponse(request, "_job.jinja", {"job_id": job_id})
-    del _jobs[job_id]
-    try:
-        result = future.result()
-    except Exception as exc:  # noqa: BLE001 -- surface any solve failure to the user
-        return templates.TemplateResponse(
-            request, "_results.jinja", {"error": str(exc)}
-        )
-    return templates.TemplateResponse(
-        request,
-        "_results.jinja",
-        {"numbers": result["numbers"], "plots": result["plots"]},
-    )
+@app.get("/industrial_heat/stream_solve")
+async def industrial_heat_stream_solve(request: Request) -> EventSourceResponse:
+    """Run the session's solve and stream it to the page as Server-Sent Events.
+
+    Drains the session's solve generator and translates each ``(kind, payload)`` into an
+    SSE message: ``data=`` payloads are JSON-encoded (charts), ``raw_data=`` payloads are
+    sent verbatim (log lines and the pre-rendered numbers fragment). The browser
+    dispatches each message by its ``event`` name; see ``static/solve.js``.
+    """
+    session = sessions.get(request.cookies.get("sid"))
+    preset = IndustrialHeat()
+
+    async def events() -> AsyncIterator[ServerSentEvent]:
+        if session is None:
+            yield ServerSentEvent(
+                event="error", raw_data="Session expired -- reload the page."
+            )
+            return
+        async for kind, payload in sessions.stream_solve(session, preset):
+            match kind:
+                case "log":
+                    yield ServerSentEvent(event="log", raw_data=str(payload))
+                case "numbers":
+                    html = templates.get_template("_numbers.jinja").render(
+                        numbers=payload
+                    )
+                    yield ServerSentEvent(event="numbers", raw_data=html)
+                case "chart":
+                    yield ServerSentEvent(event="chart", data=payload)
+                case "error":
+                    yield ServerSentEvent(event="error", raw_data=str(payload))
+                    return
+                case "done":
+                    yield ServerSentEvent(event="done", raw_data="")
+                    return
+
+    # EventSourceResponse serializes ServerSentEvent items, but inherits
+    # StreamingResponse's str/bytes-typed `content` signature.
+    return EventSourceResponse(events())  # ty: ignore[invalid-argument-type]
