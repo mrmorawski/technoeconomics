@@ -184,7 +184,7 @@ class HeatPump(Component):
     electricity_bus: Bus
     heat_bus: Bus
     cop: float | Timeseries | SeriesDataset = 3.0
-    capex: float | ScalarDataset = 900.0
+    capex: float | ScalarDataset = 900000.0
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `Process` converting electricity (`rate0=-1`) to heat (`rate1=cop`)."""
@@ -238,14 +238,21 @@ class Battery(Component):
         bus: Electricity bus the battery attaches to.
         max_hours: Storage duration at rated power [h].
         capex: Annuitised investment cost [EUR/MW].
+        round_trip_efficiency: Fraction of stored energy returned over a full
+            charge-discharge cycle. Split evenly across the two directions
+            (``sqrt`` each way) when building the PyPSA `StorageUnit`. Must be
+            < 1 -- a lossless battery makes simultaneous charge and discharge
+            free, leaving the dispatch split degenerate (non-physical "wash").
     """
 
     bus: Bus
     max_hours: float | ScalarDataset = 4.0
     capex: float | ScalarDataset = 12000.0
+    round_trip_efficiency: float | ScalarDataset = 0.85
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `StorageUnit` on the electricity bus."""
+        one_way = self.round_trip_efficiency**0.5
         n.add(
             "StorageUnit",
             self.id,
@@ -253,6 +260,8 @@ class Battery(Component):
             carrier=self.id,
             max_hours=self.max_hours,
             capital_cost=self.capex,
+            efficiency_store=one_way,
+            efficiency_dispatch=one_way,
             cyclic_state_of_charge=True,
             p_nom_extendable=True,
         )
