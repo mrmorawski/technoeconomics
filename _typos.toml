@@ -6,6 +6,7 @@
 extend-exclude = [
     "uv.lock",
     "*.ipynb",        # notebook JSON is noisy; drop this line to spell-check them
+    "*.svg",          # schematics carry random generated element ids that look like typos
     "site/",          # Zensical build output (minified JS etc.) — not source
     # For now, spell-check prose only (docs/README), not library code.
     # typos has no include-only switch, so we exclude source instead.
