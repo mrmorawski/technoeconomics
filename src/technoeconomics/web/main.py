@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from technoeconomics.backend.preset import IndustrialHeat
-from technoeconomics.web import sessions
+from technoeconomics.web import sessions, share
 from technoeconomics.web.forms import form_to_plant, plant_to_form
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -74,8 +74,26 @@ async def industrial_heat(request: Request):
     A first-time visitor has no ``sid`` cookie, so we mint a session holding a fresh
     default plant and set the cookie on the way out. A returning visitor's cookie points
     at their stored plant (with any edits from earlier solves), so the form reflects it.
+
+    A ``?p=`` share token (if valid) starts a fresh session from the shared plant; we then
+    redirect to the clean URL so a refresh is stable and doesn't re-decode the long token. A
+    malformed token is ignored, falling through to the normal session.
     """
     preset = IndustrialHeat()
+    token = request.query_params.get("p")
+    if token is not None:
+        try:
+            plant = share.decode(token)
+        except ValueError:
+            plant = None
+        if plant is not None:
+            new_sid, _ = sessions.create(plant)
+            redirect = RedirectResponse(
+                request.url_for("industrial_heat"), status_code=303
+            )
+            redirect.set_cookie("sid", new_sid, httponly=True, samesite="lax")
+            return redirect
+
     session = sessions.get(request.cookies.get("sid"))
     new_sid = None
     if session is None:
@@ -112,6 +130,31 @@ async def industrial_heat_reset(request: Request):
     response = templates.TemplateResponse(
         request, "_form.jinja", {"components": plant_to_form(session.plant)}
     )
+    if new_sid is not None:
+        response.set_cookie("sid", new_sid, httponly=True, samesite="lax")
+    return response
+
+
+@app.post("/industrial_heat/share", response_class=HTMLResponse)
+async def industrial_heat_share(request: Request):
+    """Build a shareable link encoding the current (edited) plant.
+
+    Overlays the submitted form onto the session's plant first (like ``/init_solve``), so the
+    link reflects the user's unsaved edits, then returns a fragment holding the link. A
+    non-numeric field yields an error fragment instead.
+    """
+    session = sessions.get(request.cookies.get("sid"))
+    new_sid = None
+    if session is None:
+        new_sid, session = sessions.create(IndustrialHeat().build())
+    form = await request.form()
+    values = {k: v for k, v in form.items() if isinstance(v, str)}
+    try:
+        session.plant = form_to_plant(session.plant, values)
+    except ValueError as exc:
+        return templates.TemplateResponse(request, "_share.jinja", {"error": str(exc)})
+    url = f"{request.url_for('industrial_heat')}?p={share.encode(session.plant)}"
+    response = templates.TemplateResponse(request, "_share.jinja", {"url": url})
     if new_sid is not None:
         response.set_cookie("sid", new_sid, httponly=True, samesite="lax")
     return response

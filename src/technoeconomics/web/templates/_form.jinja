@@ -41,5 +41,13 @@
                 hx-post="{{ url_for('industrial_heat_reset') }}"
                 hx-target="#model-form"
                 hx-swap="outerHTML">Reset</button>
+        <button type="button"
+                class="secondary outline"
+                hx-post="{{ url_for('industrial_heat_share') }}"
+                hx-include="#model-form"
+                hx-target="#share-out"
+                hx-swap="innerHTML">Share</button>
     </div>
+    {# POST /share renders the copyable link here (web/templates/_share.jinja). #}
+    <div id="share-out"></div>
 </form>

@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
+from pydantic import ConfigDict
 
 from technoeconomics.data import (
     Dataset,
@@ -33,6 +34,7 @@ from technoeconomics.data import (
     Timeseries,
     concrete_subclasses,
 )
+from technoeconomics.data.base import type_adapter
 from technoeconomics.model.structure import Bus
 
 if TYPE_CHECKING:
@@ -108,6 +110,10 @@ class Component:
             assigns one when the network is sanitised.
     """
 
+    # Inherited by every component (authors never write it): lets the field validator in
+    # `from_dict` accept Bus references and pandas/Dataset values as opaque arbitrary types.
+    __pydantic_config__ = ConfigDict(arbitrary_types_allowed=True)
+
     id: str = ""
     enabled: bool = True
     plot_color: PlotColor | None = None
@@ -139,25 +145,43 @@ class Component:
     def from_dict(cls, d: dict, buses: dict[str, Bus]) -> Component:
         """Reconstruct a component, relinking bus refs by id and rebuilding datasets.
 
+        Validated, as it may come from an untrusted share link: the type must be known, every
+        field must exist on it, bus references must resolve, and a parameter given as a literal
+        must be a number (or a series of numbers) -- not, say, a string that would only fail
+        later at solve time.
+
         Args:
             d: A dict produced by [`to_dict`][technoeconomics.model.component.Component.to_dict].
             buses: The plant's buses keyed by id, used to relink bus references.
 
         Returns:
             The reconstructed component.
+
+        Raises:
+            ValueError: If `d` is not a valid component.
         """
-        target = concrete_subclasses(Component)[d["__type__"]]
+        if not isinstance(d, dict):
+            raise ValueError("component must be an object")
+        name = d.get("__type__")
+        registry = concrete_subclasses(Component)
+        if name not in registry:
+            raise ValueError(f"unknown component type: {name!r}")
         kwargs: dict = {}
         for k, v in d.items():
             if k == "__type__":
                 continue
             if isinstance(v, dict) and "__bus__" in v:
+                if v["__bus__"] not in buses:
+                    raise ValueError(f"{name}.{k}: unknown bus {v['__bus__']!r}")
                 kwargs[k] = buses[v["__bus__"]]
             elif isinstance(v, dict) and "__dataset__" in v:
                 kwargs[k] = Dataset.from_dict(v)
             else:
                 kwargs[k] = v
-        return target(**kwargs)
+        # The class's pydantic `TypeAdapter` validates the scalar fields (e.g. rejects a
+        # string in a numeric field) and constructs the component; the bus and dataset
+        # objects relinked above are kept as-is (opaque arbitrary types).
+        return type_adapter(registry[name]).validate_python(kwargs)
 
 
 @dataclass(kw_only=True)

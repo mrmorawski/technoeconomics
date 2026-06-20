@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from technoeconomics.data.base import type_adapter
+
 
 @dataclass(eq=False)
 class Bus:
@@ -23,5 +25,21 @@ class Bus:
 
     @classmethod
     def from_dict(cls, d: dict) -> Bus:
-        """Reconstruct a bus from [`to_dict`][technoeconomics.model.structure.Bus.to_dict] output."""
-        return cls(id=d["id"], carrier=d["carrier"])
+        """Reconstruct a bus from [`to_dict`][technoeconomics.model.structure.Bus.to_dict] output.
+
+        Validated by the class's pydantic `TypeAdapter`, as it may come from an untrusted
+        share link.
+
+        Args:
+            d: A dict with string ``id`` and ``carrier``.
+
+        Returns:
+            The reconstructed bus.
+
+        Raises:
+            ValueError: If `d` lacks a string ``id`` or ``carrier`` (pydantic's
+                `ValidationError` is a `ValueError`).
+        """
+        if not isinstance(d, dict):
+            raise ValueError("bus must be an object")
+        return type_adapter(cls).validate_python(d)

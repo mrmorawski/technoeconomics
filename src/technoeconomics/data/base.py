@@ -5,10 +5,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, fields, replace
-from typing import TYPE_CHECKING
+from functools import cache
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
+from pydantic import TypeAdapter
 
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance
@@ -27,8 +29,12 @@ class Dataset[T](ABC):
 
     The type parameter ``T`` is the resolved value's type -- ``float`` for a scalar
     dataset, ``pandas.Series`` for a series. Concrete datasets are frozen dataclasses
-    subclassing ``Dataset[float]`` or ``Dataset[pd.Series]`` and implementing
-    ``compute``; they inherit serialisation (``to_dict``/``from_dict``) for free.
+    subclassing ``Dataset[float]`` or ``Dataset[pd.Series]`` and implementing ``compute``.
+
+    Serialisation is inherited and needs no per-class code: ``to_dict``/``from_dict`` tag the
+    dict with the class name (so the right subclass is rebuilt) and delegate the fields to a
+    pydantic [`TypeAdapter`][] over the plain dataclass -- which enforces field types on the
+    way in. A concrete dataset therefore stays a pydantic-free ``@dataclass``.
     """
 
     @abstractmethod
@@ -41,23 +47,38 @@ class Dataset[T](ABC):
         """
 
     def to_dict(self) -> dict:
-        """Serialise to a tagged dict; nested datasets serialise recursively."""
-        out: dict = {"__dataset__": type(self).__name__}
-        for f in fields(self):
-            v = getattr(self, f.name)
-            out[f.name] = v.to_dict() if isinstance(v, Dataset) else v
-        return out
+        """Serialise to a tagged dict; round-trips through `from_dict`."""
+        return {
+            "__dataset__": type(self).__name__,
+            **type_adapter(type(self)).dump_python(self, mode="json"),
+        }
 
     @classmethod
     def from_dict(cls, d: dict) -> Dataset:
-        """Reconstruct a dataset (and any nested datasets) from `to_dict` output."""
-        target = concrete_subclasses(Dataset)[d["__dataset__"]]
-        kwargs = {
-            k: (Dataset.from_dict(v) if _is_dataset_dict(v) else v)
-            for k, v in d.items()
-            if k != "__dataset__"
-        }
-        return target(**kwargs)
+        """Reconstruct a dataset from `to_dict` output.
+
+        The class name tag selects which subclass to rebuild; its pydantic `TypeAdapter` then
+        validates the fields, so a bad value from an untrusted share link (e.g. a string in a
+        numeric field, or a missing field) is rejected here rather than failing later.
+
+        Args:
+            d: A dict produced by [`to_dict`][technoeconomics.data.Dataset.to_dict].
+
+        Returns:
+            The reconstructed dataset.
+
+        Raises:
+            ValueError: If `d` is not a known dataset, or a field is invalid. (pydantic's
+                `ValidationError`, raised for a bad field, is itself a `ValueError`.)
+        """
+        if not isinstance(d, dict):
+            raise ValueError("dataset must be an object")
+        name = d.get("__dataset__")
+        registry = concrete_subclasses(Dataset)
+        if name not in registry:
+            raise ValueError(f"unknown dataset type: {name!r}")
+        payload = {k: v for k, v in d.items() if k != "__dataset__"}
+        return type_adapter(registry[name]).validate_python(payload)
 
 
 type ScalarDataset = Dataset[float]
@@ -98,6 +119,19 @@ def _resolved[C: DataclassInstance](obj: C, snapshots: pd.DatetimeIndex) -> C:
     return replace(obj, **updates) if updates else obj
 
 
-def _is_dataset_dict(v: object) -> bool:
-    """Whether a serialised value represents a (nested) dataset."""
-    return isinstance(v, dict) and "__dataset__" in v
+@cache
+def type_adapter(cls: type) -> TypeAdapter[Any]:
+    """A cached pydantic validator/serialiser for one model class.
+
+    Built from the class's dataclass fields, so model classes (datasets, components, buses)
+    stay plain pydantic-free ``@dataclass``es while gaining declarative field validation and
+    JSON (de)serialisation. Cached because building a `TypeAdapter` compiles a validator, and
+    there are few classes.
+
+    Args:
+        cls: The concrete dataclass to (de)serialise.
+
+    Returns:
+        A `TypeAdapter` for `cls`.
+    """
+    return TypeAdapter(cls)

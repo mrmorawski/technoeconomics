@@ -124,11 +124,31 @@ class Plant:
     def from_dict(cls, d: dict) -> Plant:
         """Reconstruct a plant from [`to_dict`][technoeconomics.model.plant.Plant.to_dict] output.
 
-        Buses are rebuilt first and indexed by id, so component bus references can
-        be relinked to the same `Bus` objects the plant holds. A component
-        referencing a bus id absent from `d["buses"]` raises `KeyError`, flagging
-        the dangling reference.
+        Buses are rebuilt first and indexed by id, so component bus references can be relinked
+        to the same `Bus` objects the plant holds. The structure is validated, as it may come
+        from an untrusted share link; a component referencing an unknown bus id is rejected by
+        [`Component.from_dict`][technoeconomics.model.component.Component.from_dict].
+
+        Args:
+            d: A dict produced by [`to_dict`][technoeconomics.model.plant.Plant.to_dict].
+
+        Returns:
+            The reconstructed plant.
+
+        Raises:
+            ValueError: If `d` lacks the expected name/snapshots/buses/components structure, or
+                any bus, component, or dataset within it is invalid.
         """
+        if not isinstance(d, dict):
+            raise ValueError("plant must be an object")
+        for key, kind in (
+            ("name", str),
+            ("snapshots", dict),
+            ("buses", list),
+            ("components", list),
+        ):
+            if not isinstance(d.get(key), kind):
+                raise ValueError(f"plant: '{key}' must be a {kind.__name__}")
         buses = [Bus.from_dict(b) for b in d["buses"]]
         by_id = {b.id: b for b in buses}
         return cls(
