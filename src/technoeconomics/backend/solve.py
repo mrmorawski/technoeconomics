@@ -34,6 +34,7 @@ def solve(plant: Plant, preset: Preset) -> dict:
     log.info("Building network…")
     n = plant.build_network()
     log.info("Solving…")
+    # TODO: use faster solver config, pdlp, many threads etc.
     status, condition = n.optimize(solver_name="highs")
     if status != "ok":
         raise RuntimeError(f"solve failed: status={status}, condition={condition}")

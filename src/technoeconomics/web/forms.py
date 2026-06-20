@@ -2,108 +2,138 @@
 
 The form is the user's source of truth for a model's editable parameters.
 
-- [`plant_to_form`][technoeconomics.web.forms.plant_to_form] turns a plant into field
-  descriptors the preset page renders.
+- [`plant_to_form`][technoeconomics.web.forms.plant_to_form] turns a plant into the
+  per-component field descriptors the page renders, recursing into dataset parameters so a
+  `Sinusoidal` price exposes ``price.mean``, ``price.amplitude``, ... as separate inputs.
 - [`form_to_plant`][technoeconomics.web.forms.form_to_plant] writes a submission back
-  onto a fresh preset plant (the structure) and returns it.
+  *functionally*: serialise the plant, overlay the submitted scalars onto that plain dict by
+  dotted path, and rebuild. The datasets are frozen, so editing the dict (not the objects) is
+  the simple path -- and it reuses the existing `to_dict`/`from_dict` serialisation contract.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, fields
+from typing import TYPE_CHECKING
 
 from technoeconomics.data import Dataset
 from technoeconomics.model.plant import Plant
 from technoeconomics.model.structure import Bus
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator, Mapping
+
 # Component fields that are never user-editable in the form.
 _HIDDEN_FIELDS = frozenset({"id", "enabled", "plot_color"})
 
 
-def _scalar_field_names(component: object) -> list[str]:
-    """Names of a component's editable scalar (float) parameters.
-
-    Bus references, datasets/series, booleans, and the identity/colour fields are
-    excluded.
-    """
-    names: list[str] = []
-    for field in fields(component):  # ty: ignore[invalid-argument-type]
-        if field.name in _HIDDEN_FIELDS:
-            continue
-        value = getattr(component, field.name)
-        if isinstance(value, (Bus, Dataset, bool)):
-            continue
-        if isinstance(value, (int, float)):
-            names.append(field.name)
-    return names
-
-
 @dataclass
-class FormField:
-    """One editable scalar parameter of a component."""
+class Param:
+    """One editable scalar leaf of a component (possibly nested inside a dataset)."""
 
-    name: str  # e.g. "heat_pump.cop"
-    label: str  # e.g. "cop"
+    path: str  # dotted overlay path into the serialised plant, e.g. "grid.price.mean"
+    label: str  # the path without the component id, e.g. "price.mean"
     value: float
+    advanced: bool  # render under the form's "Advanced" section rather than inline
 
 
 @dataclass
 class ComponentForm:
-    """A component rendered as a fieldset: an enable toggle plus scalar inputs."""
+    """A component rendered as a fieldset: an enable toggle plus its parameters."""
 
     id: str
     title: str
     enabled: bool
-    fields: list[FormField]
+    params: list[Param]
     color: str | None  # the component's carrier colour, for a coloured accent
+
+
+def _walk(
+    prefix: str, value: object, advanced: bool
+) -> Iterator[tuple[str, float, bool]]:
+    """Yield ``(path, value, advanced)`` for each scalar leaf at or under `value`.
+
+    Recurses into nested datasets, so a `Sinusoidal` (mean/amplitude/period/phase) becomes
+    one leaf per field. Booleans are skipped -- they are not numeric inputs.
+    """
+    if isinstance(value, Dataset):
+        for f in fields(value):
+            yield from _walk(f"{prefix}.{f.name}", getattr(value, f.name), advanced)
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        yield prefix, float(value), advanced
 
 
 def plant_to_form(plant: Plant) -> list[ComponentForm]:
     """Describe a plant's editable parameters for rendering, one entry per component."""
     out: list[ComponentForm] = []
     for component in plant.components:
-        form_fields = [
-            FormField(
-                name=f"{component.id}.{name}",
-                label=name,
-                value=float(getattr(component, name)),
-            )
-            for name in _scalar_field_names(component)
-        ]
+        params: list[Param] = []
+        for f in fields(component):
+            if f.name in _HIDDEN_FIELDS:
+                continue
+            value = getattr(component, f.name)
+            if isinstance(value, Bus):
+                continue
+            advanced = bool(f.metadata.get("advanced"))
+            for path, leaf, adv in _walk(f"{component.id}.{f.name}", value, advanced):
+                params.append(
+                    Param(
+                        path=path, label=path.split(".", 1)[1], value=leaf, advanced=adv
+                    )
+                )
         out.append(
             ComponentForm(
                 id=component.id,
                 title=component.id.replace("_", " ").capitalize(),
                 enabled=component.enabled,
-                fields=form_fields,
+                params=params,
                 color=str(component.plot_color) if component.plot_color else None,
             )
         )
     return out
 
 
-def form_to_plant(plant: Plant, form: Mapping[str, str]) -> Plant:
-    """Write a submission onto a fresh preset plant and return it.
+def form_to_plant(base: Plant, form: Mapping[str, str]) -> Plant:
+    """Overlay a submission onto the plant and rebuild it.
 
-    Form fields are named ``"<component_id>.<field>"``; a component's ``enabled``
-    checkbox is present only when ticked. The edited scalars are set directly on the
-    plant's (mutable) components.
+    Field names are dotted paths into the serialised plant (``"<id>.<field>[.<sub>...]"``); a
+    component's ``enabled`` checkbox is present only when ticked. We serialise `base`, set
+    each component's ``enabled``, overlay every submitted scalar at its path, and rebuild --
+    operating on the plain dict rather than the frozen datasets. Keys that don't resolve to a
+    leaf (e.g. an unexpected field in a crafted POST) are ignored.
 
     Args:
-        plant: A fresh plant (from the preset) supplying the structure and defaults.
+        base: The plant supplying the structure and current values.
         form: The submitted form values.
 
     Returns:
-        The same plant, with the submission applied.
+        A new plant with the submission applied.
 
     Raises:
-        ValueError: If a submitted value is not a number.
+        ValueError: If a submitted value at a valid path is not a number.
     """
-    for component in plant.components:
-        component.enabled = f"{component.id}.enabled" in form
-        for name in _scalar_field_names(component):
-            key = f"{component.id}.{name}"
-            if key in form:
-                setattr(component, name, float(form[key]))
-    return plant
+    d = base.to_dict()
+    by_id = {c["id"]: c for c in d["components"]}
+    for c in d["components"]:
+        c["enabled"] = f"{c['id']}.enabled" in form
+    for key, val in form.items():
+        if key.endswith(".enabled"):
+            continue
+        cid, *path = key.split(".")
+        node = by_id.get(cid)
+        if node is None or not path:
+            continue
+        for k in path[
+            :-1
+        ]:  # walk to the leaf's parent, skipping keys that don't resolve
+            if not isinstance(node, dict) or k not in node:
+                node = None
+                break
+            node = node[k]
+        if not isinstance(node, dict) or path[-1] not in node:
+            continue
+        try:
+            node[path[-1]] = float(val)
+        except ValueError:
+            raise ValueError(f"{key}: {val!r} is not a number") from None
+    return Plant.from_dict(d)

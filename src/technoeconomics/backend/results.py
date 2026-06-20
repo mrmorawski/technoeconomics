@@ -48,6 +48,9 @@ def plots(network: pypsa.Network, requested: list[Plot]) -> list[dict]:
         ``echarts.init(el).setOption(option)`` and ``id`` is stable across solves so the
         client can update each chart in place. One request may yield several charts -- an
         energy balance gives one per bus carrier.
+
+    Raises:
+        ValueError: If a requested plot is unknown.
     """
     out: list[dict] = []
     for p in requested:

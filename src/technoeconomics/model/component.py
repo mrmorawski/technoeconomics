@@ -19,7 +19,7 @@ grid = GridElectricity(
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -52,6 +52,24 @@ class PlotColor(StrEnum):
     GREY = "#7f7f7f"
     OLIVE = "#bcbd22"
     CYAN = "#17becf"
+
+
+def _advanced(default: float) -> float:
+    """Declare a secondary parameter: editable, but tucked under the form's "Advanced".
+
+    A plain field is shown by default; one built with this carries
+    ``metadata={"advanced": True}``, which `web.forms` reads to decide where to render it.
+    The model itself never acts on the flag -- it is inert metadata, the mild layering
+    cost of keeping each parameter's default visibility next to the parameter.
+
+    Args:
+        default: The field's default value.
+
+    Returns:
+        A dataclass ``field`` with the advanced flag set (typed as the value for the
+        dataclass machinery, per the standard ``dataclasses.field`` typing convention).
+    """
+    return field(default=default, metadata={"advanced": True})
 
 
 @dataclass(kw_only=True)
@@ -149,12 +167,14 @@ class GridElectricity(Component):
     Attributes:
         bus: Electricity bus to inject into.
         price: Marginal cost of electricity [EUR/MWh].
+        max_capacity: Maximum injection power [MW].
+        capex: Annuitised investment cost [EUR/MW].
     """
 
     bus: Bus
     price: float | Timeseries | SeriesDataset = 120.0
-    max_capacity: float | ScalarDataset = 1000
-    capex: float | ScalarDataset = 0
+    max_capacity: float | ScalarDataset = _advanced(1000)
+    capex: float | ScalarDataset = _advanced(0)
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `Generator` injecting electricity at `price`."""
@@ -184,7 +204,7 @@ class HeatPump(Component):
     electricity_bus: Bus
     heat_bus: Bus
     cop: float | Timeseries | SeriesDataset = 3.0
-    capex: float | ScalarDataset = 900000.0
+    capex: float | ScalarDataset = _advanced(900000.0)
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `Process` converting electricity (`rate0=-1`) to heat (`rate1=cop`)."""
@@ -214,7 +234,7 @@ class ElectricBoiler(Component):
     electricity_bus: Bus
     heat_bus: Bus
     efficiency: float | Timeseries | SeriesDataset = 0.99
-    capex: float | ScalarDataset = 100.0
+    capex: float | ScalarDataset = _advanced(100.0)
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `Process` converting electricity to heat at `efficiency`."""
@@ -247,12 +267,14 @@ class Battery(Component):
 
     bus: Bus
     max_hours: float | ScalarDataset = 4.0
-    capex: float | ScalarDataset = 12000.0
-    round_trip_efficiency: float | ScalarDataset = 0.85
+    capex: float | ScalarDataset = _advanced(12000.0)
+    round_trip_efficiency: float | ScalarDataset = _advanced(0.85)
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `StorageUnit` on the electricity bus."""
-        one_way = self.round_trip_efficiency**0.5
+        # add_to_network runs on a resolved copy, so the dataset field is a concrete float
+        # here even though its declared type still admits a ScalarDataset.
+        one_way = self.round_trip_efficiency**0.5  # ty: ignore[unsupported-operator]
         n.add(
             "StorageUnit",
             self.id,

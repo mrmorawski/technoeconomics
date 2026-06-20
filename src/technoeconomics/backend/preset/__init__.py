@@ -34,4 +34,9 @@ def get(name: str) -> type[Preset]:
     Raises:
         KeyError: If no preset has that name.
     """
-    return _PRESETS[name]
+    try:
+        return _PRESETS[name]
+    except KeyError:
+        raise KeyError(
+            f"unknown preset {name!r}; available: {sorted(_PRESETS)}"
+        ) from None

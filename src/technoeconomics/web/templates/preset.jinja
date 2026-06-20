@@ -3,6 +3,14 @@
     {{ title }} — technoeconomics.app
 {% endblock title %}
 {% block content %}
+    {# One numeric input for a Param (web.forms). `path` is the dotted name the backend
+       overlays onto the plant; `label` is that path without the component id. #}
+    {% macro param_input(p) %}
+        <label>
+            {{ p.label }}
+            <input type="number" name="{{ p.path }}" value="{{ p.value }}" step="any">
+        </label>
+    {% endmacro %}
     <section>
         <h1>{{ title }}</h1>
         <p>{{ description }}</p>
@@ -26,15 +34,14 @@
                                    {% if component.enabled %}checked{% endif %}>
                             Enabled
                         </label>
-                        {% for field in component.fields %}
-                            <label>
-                                {{ field.label }}
-                                <input type="number"
-                                       name="{{ field.name }}"
-                                       value="{{ field.value }}"
-                                       step="any">
-                            </label>
-                        {% endfor %}
+                        {% for p in component.params if not p.advanced %}{{ param_input(p) }}{% endfor %}
+                        {% set advanced = component.params | selectattr('advanced') | list %}
+                        {% if advanced %}
+                            <details>
+                                <summary>Advanced</summary>
+                                {% for p in advanced %}{{ param_input(p) }}{% endfor %}
+                            </details>
+                        {% endif %}
                     </fieldset>
                 {% endfor %}
             </div>

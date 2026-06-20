@@ -1,6 +1,6 @@
-"""
-super simple exploration of converting a plant into a pypsa model
-just local solar, grid electricity, heat pump, constant heat demand
+"""Super simple exploration of converting a plant into a pypsa model.
+
+Just local solar, grid electricity, heat pump, constant heat demand.
 """
 
 import logging
