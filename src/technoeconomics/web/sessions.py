@@ -14,7 +14,7 @@ can stream intermediate results such as logs from the solve job to the frontend.
 from __future__ import annotations
 
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -106,9 +106,9 @@ async def solver_pool() -> AsyncIterator[TaskGroup]:
     and passes it to each `stream_solve` call. Submitting solves into one app-lifetime group
     -- rather than a task spawned per request -- keeps them inside AnyIO's structured
     concurrency (no module-level global) and lets a solve outlive the request handler that
-    started it, since the SSE response streams *after* the handler returns. A solve must
-    never let an exception escape `_run_solve`, or this shared group cancels every other live
-    solve (hence the catch-all in `_solve_to_stream`).
+    started it, since the SSE response streams *after* the handler returns. A solve must never
+    let an exception escape `_run_solve`, or this shared group would cancel every other live
+    solve -- so `_run_solve` has a catch-all that contains any failure.
 
     Yields:
         The task group, live for the duration of the ``async with`` body.
@@ -167,6 +167,13 @@ async def _run_solve(
         await to_thread.run_sync(
             _solve_to_stream, session, preset, send, limiter=_solves
         )
+    except Exception as exc:  # noqa: BLE001 -- never let a solve escape the shared task group
+        # `_solve_to_stream` already turns ordinary solve failures into an "error" event, so
+        # reaching here means the worker machinery itself failed. Contain it (an escape would
+        # cancel every other live solve), log it, and best-effort surface it to this client.
+        log.exception("Solve task failed unexpectedly")
+        with suppress(Exception):
+            send.send_nowait(("error", str(exc)))
     finally:
         send.close()
 
