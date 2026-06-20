@@ -64,6 +64,12 @@
     margin-bottom: 1.5rem;
 }
 
-#results progress {
-    width: 12rem;
+/* Live run console: streamed log lines, capped height with scroll-back. */
+.run .console {
+    max-height: 12rem;
+    overflow-y: auto;
+    margin: 0;
+    font-size: 0.8rem;
+    white-space: pre-wrap;
+    word-break: break-word;
 }

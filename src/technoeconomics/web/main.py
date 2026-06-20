@@ -23,9 +23,18 @@ templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Surface the solve's INFO logs (`solve()` calls) to the live console."""
-    logging.getLogger("technoeconomics").setLevel(logging.INFO)
-    yield
+    """Surface solve progress to the console at INFO, and run the solver task group.
+
+    The task group (from `sessions.solver_pool`) owns every in-flight solve for the app's
+    lifetime; we keep it on ``app.state`` so request handlers can submit solves into it. A
+    solve can then outlive the handler that started it -- the SSE response streams after the
+    handler returns.
+    """
+    for name in sessions.CAPTURED_LOGGERS:
+        logging.getLogger(name).setLevel(logging.INFO)
+    async with sessions.solver_pool() as pool:
+        app.state.solver_pool = pool
+        yield
 
 
 app = FastAPI(
@@ -112,42 +121,32 @@ async def industrial_heat_init_solve(request: Request):
     return templates.TemplateResponse(request, "_solving.jinja", {})
 
 
-@app.get("/industrial_heat/stream_solve")
-async def industrial_heat_stream_solve(request: Request) -> EventSourceResponse:
-    """Run the session's solve and stream it to the page as Server-Sent Events.
-
-    Drains the session's solve generator and translates each ``(kind, payload)`` into an
-    SSE message: ``data=`` payloads are JSON-encoded (charts), ``raw_data=`` payloads are
-    sent verbatim (log lines and the pre-rendered numbers fragment). The browser
-    dispatches each message by its ``event`` name; see ``static/solve.js``.
-    """
+@app.get("/industrial_heat/stream_solve", response_class=EventSourceResponse)
+async def industrial_heat_stream_solve(
+    request: Request,
+) -> AsyncIterator[ServerSentEvent]:
+    """Run the session's solve and stream it to the page as Server-Sent Events."""
     session = sessions.get(request.cookies.get("sid"))
+    if session is None:
+        yield ServerSentEvent(
+            event="failed", raw_data="Session expired -- reload the page."
+        )
+        return
     preset = IndustrialHeat()
-
-    async def events() -> AsyncIterator[ServerSentEvent]:
-        if session is None:
-            yield ServerSentEvent(
-                event="error", raw_data="Session expired -- reload the page."
-            )
-            return
-        async for kind, payload in sessions.stream_solve(session, preset):
-            match kind:
-                case "log":
-                    yield ServerSentEvent(event="log", raw_data=str(payload))
-                case "numbers":
-                    html = templates.get_template("_numbers.jinja").render(
-                        numbers=payload
-                    )
-                    yield ServerSentEvent(event="numbers", raw_data=html)
-                case "chart":
-                    yield ServerSentEvent(event="chart", data=payload)
-                case "error":
-                    yield ServerSentEvent(event="error", raw_data=str(payload))
-                    return
-                case "done":
-                    yield ServerSentEvent(event="done", raw_data="")
-                    return
-
-    # EventSourceResponse serializes ServerSentEvent items, but inherits
-    # StreamingResponse's str/bytes-typed `content` signature.
-    return EventSourceResponse(events())  # ty: ignore[invalid-argument-type]
+    async for kind, payload in sessions.stream_solve(
+        session, preset, request.app.state.solver_pool
+    ):
+        match kind:
+            case "log":
+                yield ServerSentEvent(event="log", raw_data=str(payload))
+            case "numbers":
+                html = templates.get_template("_numbers.jinja").render(numbers=payload)
+                yield ServerSentEvent(event="numbers", raw_data=html)
+            case "chart":
+                yield ServerSentEvent(event="chart", data=payload)
+            case "error":
+                yield ServerSentEvent(event="failed", raw_data=str(payload))
+                return
+            case "done":
+                yield ServerSentEvent(event="done", raw_data="")
+                return

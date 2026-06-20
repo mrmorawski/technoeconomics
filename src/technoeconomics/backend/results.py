@@ -37,15 +37,17 @@ def numbers(network: pypsa.Network, requested: list[Number]) -> list[dict]:
 
 
 def plots(network: pypsa.Network, requested: list[Plot]) -> list[dict]:
-    """Compute the requested charts as ECharts option objects.
+    """Compute the requested charts as identified ECharts options.
 
     Args:
         network: A solved, sanitised PyPSA network.
         requested: The plots to compute, in display order.
 
     Returns:
-        ECharts option dicts, each ready for ``echarts.init(el).setOption(option)``. One
-        request may yield several charts -- an energy balance gives one per bus carrier.
+        ``{"id", "option"}`` dicts, where ``option`` is ready for
+        ``echarts.init(el).setOption(option)`` and ``id`` is stable across solves so the
+        client can update each chart in place. One request may yield several charts -- an
+        energy balance gives one per bus carrier.
     """
     out: list[dict] = []
     for p in requested:
@@ -71,11 +73,18 @@ def _number(network: pypsa.Network, n: Number) -> dict:
 
 
 def _energy_balance(network: pypsa.Network) -> list[dict]:
-    """A stacked-area ECharts option per bus carrier, at full time resolution."""
+    """An identified stacked-area chart per bus carrier, at full time resolution.
+
+    Each entry is ``{"id": "balance_<carrier>", "option": <echarts option>}``; the id is
+    stable across solves so the client can update the carrier's chart in place.
+    """
     balance = network.statistics.energy_balance(aggregate_time=False)
     charts: list[dict] = []
     for carrier in dict.fromkeys(network.buses.carrier):
-        wide = balance.xs(carrier, level="bus_carrier").T
+        # energy_balance leaves NaN where a component does not contribute at a timestep;
+        # for a stacked balance that is simply zero flow. Fill it, both so the area stacks
+        # correctly and because NaN serialises to a bare `NaN` token that is invalid JSON.
+        wide = balance.xs(carrier, level="bus_carrier").T.fillna(0.0)
         names = [comp_carrier for _comp, comp_carrier in wide.columns]
         # One shared dataset: a header row, then [iso_time, *values_per_series] rows.
         source = [["time", *names]]
@@ -94,13 +103,16 @@ def _energy_balance(network: pypsa.Network) -> list[dict]:
             for name in names
         ]
         charts.append(
-            _stacked_area(
-                title=f"{carrier.capitalize()} balance",
-                y_label="Power [MW]",
-                source=source,
-                series=series,
-                initial_range=_first_week_of_may(wide.index),
-            )
+            {
+                "id": f"balance_{carrier}",
+                "option": _stacked_area(
+                    title=f"{carrier.capitalize()} balance",
+                    y_label="Power [MW]",
+                    source=source,
+                    series=series,
+                    initial_range=_first_week_of_may(wide.index),
+                ),
+            }
         )
     return charts
 

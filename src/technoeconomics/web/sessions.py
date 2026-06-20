@@ -1,7 +1,6 @@
 """Session and worker management for optimisation runs.
 
-Solve jobs take up to a few minutes, so the server runs them in worker threads (pypsa
-and HiGHS block; running them on the event loop would freeze every user).
+Solve jobs take up to a few minutes, so the server runs them in worker threads.
 
 State is managed by a [Session][technoeconomics.backend.sessions.Session]. We maintain it
 to reuse solver artifacts between runs, enabling faster solve times and making the website
@@ -15,6 +14,7 @@ can stream intermediate results such as logs from the solve job to the frontend.
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -34,6 +34,7 @@ from technoeconomics.backend.solve import solve
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from anyio.abc import TaskGroup
     from anyio.streams.memory import MemoryObjectSendStream
 
     from technoeconomics.backend.preset import Preset
@@ -97,30 +98,58 @@ def create(plant: Plant) -> tuple[str, Session]:
     return sid, session
 
 
-async def stream_solve(session: Session, preset: Preset) -> AsyncIterator[Event]:
+@asynccontextmanager
+async def solver_pool() -> AsyncIterator[TaskGroup]:
+    """Open the task group that runs solves, for the whole application lifetime.
+
+    Entered once from the FastAPI lifespan, which keeps the yielded group on ``app.state``
+    and passes it to each `stream_solve` call. Submitting solves into one app-lifetime group
+    -- rather than a task spawned per request -- keeps them inside AnyIO's structured
+    concurrency (no module-level global) and lets a solve outlive the request handler that
+    started it, since the SSE response streams *after* the handler returns. A solve must
+    never let an exception escape `_run_solve`, or this shared group cancels every other live
+    solve (hence the catch-all in `_solve_to_stream`).
+
+    Yields:
+        The task group, live for the duration of the ``async with`` body.
+    """
+    async with create_task_group() as tg:
+        try:
+            yield tg
+        finally:
+            tg.cancel_scope.cancel()  # don't let shutdown block on awaiting in-flight solves
+
+
+async def stream_solve(
+    session: Session, preset: Preset, solver_pool: TaskGroup
+) -> AsyncIterator[Event]:
     """Solve the session's plant in a worker thread, yielding events as they arise.
 
-    The solve runs in an AnyIO worker thread (off the event loop) and pushes its log
-    lines and results back through an in-memory stream, which this generator drains.
-    The task group scopes the worker to this call: when the client disconnects and the
-    generator is closed, the worker is awaited and cleaned up.
+    The solve runs in an AnyIO worker thread (off the event loop) and pushes its log lines
+    and results back through an in-memory stream, which this generator drains. If the
+    client disconnects, draining stops and the stream is dropped; a worker thread cannot be
+    interrupted mid-solve, so it runs to completion and its remaining events are discarded.
 
     Args:
         session: The session whose plant to solve.
         preset: The preset supplying which numbers and plots to compute.
+        solver_pool: The app-lifetime task group to run the solve in (held on ``app.state``,
+            opened by `solver_pool`); passed in rather than read from a module global.
 
     Yields:
         ``(kind, payload)`` events, terminating after a ``done`` or ``error``.
     """
     send, receive = create_memory_object_stream[Event](256)
-    async with create_task_group() as tg:
-        tg.start_soon(_run_solve, session, preset, send)
-        async with receive:
-            async for event in receive:
-                yield event
-                if event[0] in ("done", "error"):
-                    break
-        tg.cancel_scope.cancel()
+    # Submit the solve into the passed-in app-lifetime group rather than opening one here:
+    # it pushes events onto `send` from a worker thread while we drain `receive`. This
+    # generator owns no cancel scope, so it is safe for the SSE machinery to finalise it in
+    # a different task -- the exact pitfall that rules out a task group *inside* a generator.
+    solver_pool.start_soon(_run_solve, session, preset, send)
+    async with receive:
+        async for event in receive:
+            yield event
+            if event[0] in ("done", "error"):
+                break
 
 
 async def _run_solve(
@@ -157,7 +186,10 @@ def _solve_to_stream(
     """
 
     def push(kind: str, payload: object) -> None:
-        from_thread.run_sync(send.send_nowait, (kind, payload))
+        try:
+            from_thread.run_sync(send.send_nowait, (kind, payload))
+        except Exception:  # noqa: BLE001 -- consumer gone (disconnect); drop the event
+            pass
 
     token = _sink.set(send)
     try:
@@ -192,4 +224,11 @@ class _Capture(logging.Handler):
             pass
 
 
-logging.getLogger("technoeconomics").addHandler(_Capture())
+# Loggers surfaced to the live console during a solve: our own progress plus pypsa and
+# linopy (the build and solver narrative). The names are disjoint subtrees, so one shared
+# handler fires at most once per record.
+CAPTURED_LOGGERS = ("technoeconomics", "pypsa", "linopy")
+
+_handler = _Capture()
+for _logger_name in CAPTURED_LOGGERS:
+    logging.getLogger(_logger_name).addHandler(_handler)

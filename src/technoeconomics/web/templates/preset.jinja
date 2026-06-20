@@ -10,10 +10,12 @@
             {# Schematic SVG is inlined from the preset (backend/preset/schematics). #}
             {{ schematic | safe }}
         </figure>
-        {# Form fields are generated from the plant — see web/forms.plant_to_form. #}
-        <form hx-post="{{ url_for('solve_submit') }}"
-              hx-target="#results"
-              hx-swap="outerHTML">
+        {# Form fields are generated from the plant — see web/forms.plant_to_form.
+           Submitting records the edits and swaps in _solving.jinja, which opens the
+           SSE stream; results below are then updated in place by solve.js. #}
+        <form hx-post="{{ url_for('industrial_heat_init_solve') }}"
+              hx-target="#run"
+              hx-swap="innerHTML">
             <div class="grid">
                 {% for component in components %}
                     <fieldset {% if component.color %}style="border-inline-start: 4px solid {{ component.color }}; padding-inline-start: 1rem"{% endif %}>
@@ -38,6 +40,11 @@
             </div>
             <button type="submit">Solve</button>
         </form>
-        <div id="results"></div>
+        {# Swapped by the POST: the run console, which opens the SSE stream. #}
+        <div id="run"></div>
+        {# Updated in place by solve.js as stream events arrive. #}
+        <div id="numbers" class="numbers"></div>
+        <div id="charts"></div>
     </section>
+    <script src="{{ url_for('static', path='solve.js') }}"></script>
 {% endblock content %}
