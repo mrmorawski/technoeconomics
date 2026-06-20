@@ -3,14 +3,6 @@
     {{ title }} — technoeconomics.app
 {% endblock title %}
 {% block content %}
-    {# One numeric input for a Param (web.forms). `path` is the dotted name the backend
-       overlays onto the plant; `label` is that path without the component id. #}
-    {% macro param_input(p) %}
-        <label>
-            {{ p.label }}
-            <input type="number" name="{{ p.path }}" value="{{ p.value }}" step="any">
-        </label>
-    {% endmacro %}
     <section>
         <h1>{{ title }}</h1>
         <p>{{ description }}</p>
@@ -18,35 +10,10 @@
             {# Schematic SVG is inlined from the preset (backend/preset/schematics). #}
             {{ schematic | safe }}
         </figure>
-        {# Form fields are generated from the plant — see web/forms.plant_to_form.
-           Submitting records the edits and swaps in _solving.jinja, which opens the
-           SSE stream; results below are then updated in place by solve.js. #}
-        <form hx-post="{{ url_for('industrial_heat_init_solve') }}"
-              hx-target="#run"
-              hx-swap="innerHTML">
-            <div class="grid">
-                {% for component in components %}
-                    <fieldset {% if component.color %}style="border-inline-start: 4px solid {{ component.color }}; padding-inline-start: 1rem"{% endif %}>
-                        <legend {% if component.color %}style="color: {{ component.color }}"{% endif %}>{{ component.title }}</legend>
-                        <label>
-                            <input type="checkbox"
-                                   name="{{ component.id }}.enabled"
-                                   {% if component.enabled %}checked{% endif %}>
-                            Enabled
-                        </label>
-                        {% for p in component.params if not p.advanced %}{{ param_input(p) }}{% endfor %}
-                        {% set advanced = component.params | selectattr('advanced') | list %}
-                        {% if advanced %}
-                            <details>
-                                <summary>Advanced</summary>
-                                {% for p in advanced %}{{ param_input(p) }}{% endfor %}
-                            </details>
-                        {% endif %}
-                    </fieldset>
-                {% endfor %}
-            </div>
-            <button type="submit">Solve</button>
-        </form>
+        {# The editable plant form (web/forms.plant_to_form). Submitting records the edits and
+           swaps in _solving.jinja, which opens the SSE stream; results below update in place
+           via solve.js. #}
+        {% include "_form.jinja" %}
         {# Swapped by the POST: the run console, which opens the SSE stream. #}
         <div id="run"></div>
         {# Updated in place by solve.js as stream events arrive. #}

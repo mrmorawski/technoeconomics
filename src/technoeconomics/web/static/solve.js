@@ -69,6 +69,17 @@ function connectStream() {
     es.onerror = () => es.close();
 }
 
+// Empty the results area and dispose the chart instances. Called from the Reset button so a
+// fresh solve starts from a clean slate: disposing drops each ECharts instance (and its
+// entry in `charts`), so the next solve re-inits into a new div instead of an orphaned one.
+function clearResults() {
+    Object.values(charts).forEach((c) => c.dispose());
+    Object.keys(charts).forEach((id) => delete charts[id]);
+    document.getElementById("charts").innerHTML = "";
+    document.getElementById("numbers").innerHTML = "";
+    document.getElementById("run").innerHTML = "";
+}
+
 window.addEventListener("resize", () => {
     Object.values(charts).forEach((c) => c.resize());
 });

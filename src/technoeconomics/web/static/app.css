@@ -39,6 +39,16 @@
     opacity: 0.35;
 }
 
+/* Form action buttons (Solve / Reset) in a row rather than Pico's default full width. */
+.actions {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.actions button {
+    width: auto;
+}
+
 /* Headline numbers above the charts. */
 .numbers {
     display: grid;

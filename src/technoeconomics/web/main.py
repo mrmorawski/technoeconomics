@@ -96,6 +96,27 @@ async def industrial_heat(request: Request):
     return response
 
 
+@app.post("/industrial_heat/reset", response_class=HTMLResponse)
+async def industrial_heat_reset(request: Request):
+    """Reset the session's plant to the preset defaults and re-render the form.
+
+    htmx swaps the returned form fragment in place of the current one. If the session has
+    expired, a fresh one is minted (and its cookie set) so reset still yields a usable form.
+    """
+    session = sessions.get(request.cookies.get("sid"))
+    new_sid = None
+    if session is None:
+        new_sid, session = sessions.create(IndustrialHeat().build())
+    else:
+        session.plant = IndustrialHeat().build()
+    response = templates.TemplateResponse(
+        request, "_form.jinja", {"components": plant_to_form(session.plant)}
+    )
+    if new_sid is not None:
+        response.set_cookie("sid", new_sid, httponly=True, samesite="lax")
+    return response
+
+
 @app.post("/industrial_heat/init_solve", response_class=HTMLResponse)
 async def industrial_heat_init_solve(request: Request):
     """Record the edited plant on the session; the page then opens the stream to solve it.
