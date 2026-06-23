@@ -60,11 +60,9 @@ async def about(request: Request):
 
 
 @app.get("/docs", response_class=RedirectResponse)
-async def docs(request: Request):
+async def docs():
     """Redirect to the published documentation site."""
-    return RedirectResponse(
-        "https://mrmorawski.github.io/technoeconomics/getting-started/"
-    )
+    return RedirectResponse("https://mrmorawski.github.io/technoeconomics/getting-started/")
 
 
 @app.get("/industrial_heat", response_class=HTMLResponse)
@@ -115,9 +113,7 @@ async def industrial_heat_init_solve(request: Request):
     try:
         session.plant = form_to_plant(session.plant, values)
     except ValueError as exc:
-        return templates.TemplateResponse(
-            request, "_solving.jinja", {"error": str(exc)}
-        )
+        return templates.TemplateResponse(request, "_solving.jinja", {"error": str(exc)})
     return templates.TemplateResponse(request, "_solving.jinja", {})
 
 
@@ -128,9 +124,7 @@ async def industrial_heat_stream_solve(
     """Run the session's solve and stream it to the page as Server-Sent Events."""
     session = sessions.get(request.cookies.get("sid"))
     if session is None:
-        yield ServerSentEvent(
-            event="failed", raw_data="Session expired -- reload the page."
-        )
+        yield ServerSentEvent(event="failed", raw_data="Session expired -- reload the page.")
         return
     preset = IndustrialHeat()
     async for kind, payload in sessions.stream_solve(

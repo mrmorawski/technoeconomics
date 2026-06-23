@@ -91,7 +91,7 @@ def _energy_balance(network: pypsa.Network) -> list[dict]:
         names = [comp_carrier for _comp, comp_carrier in wide.columns]
         # One shared dataset: a header row, then [iso_time, *values_per_series] rows.
         source = [["time", *names]]
-        for time, row in zip(wide.index, wide.to_numpy().tolist()):
+        for time, row in zip(wide.index, wide.to_numpy().tolist(), strict=True):
             source.append([time.isoformat(), *row])
         series = [
             {

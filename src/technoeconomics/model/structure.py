@@ -18,10 +18,10 @@ class Bus:
     carrier: str
 
     def to_dict(self) -> dict:
-        """Serialise to a plain dict; round-trips through [`from_dict`][technoeconomics.model.structure.Bus.from_dict]."""
+        """Serialise to a plain dict."""
         return {"id": self.id, "carrier": self.carrier}
 
     @classmethod
     def from_dict(cls, d: dict) -> Bus:
-        """Reconstruct a bus from [`to_dict`][technoeconomics.model.structure.Bus.to_dict] output."""
+        """Reconstruct a bus from `to_dict` output."""
         return cls(id=d["id"], carrier=d["carrier"])

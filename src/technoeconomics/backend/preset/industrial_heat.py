@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import ClassVar
 
-from technoeconomics.backend.results import Number, Plot
 from technoeconomics.backend.preset.base import Preset
+from technoeconomics.backend.results import Number, Plot
 from technoeconomics.data import Sinusoidal
 from technoeconomics.model.component import (
     Battery,
@@ -21,7 +21,7 @@ from technoeconomics.model.structure import Bus
 
 
 class IndustrialHeat(Preset):
-    """Industrial process heat: grid power, a heat pump vs an electric boiler, a battery, heat demand."""
+    """Industrial process heat with grid power, heat conversion, battery, and heat demand."""
 
     name: ClassVar[str] = "industrial_heat"
     title: ClassVar[str] = "Industrial process heat"

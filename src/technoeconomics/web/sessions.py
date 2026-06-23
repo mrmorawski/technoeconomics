@@ -14,7 +14,7 @@ can stream intermediate results such as logs from the solve job to the frontend.
 from __future__ import annotations
 
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -60,15 +60,11 @@ class Session:
     result: dict | None = None
 
 
-_sessions: TTLCache = TTLCache(
-    maxsize=64, ttl=30 * 60
-)  # sid -> Session; library evicts
+_sessions: TTLCache = TTLCache(maxsize=64, ttl=30 * 60)  # sid -> Session; library evicts
 _solves = CapacityLimiter(8)  # cap concurrent solves within AnyIO's shared thread pool
 # The active worker thread's stream, so the log handler knows where to forward records
 # without being passed it. Set in _solve_to_stream, read in _Capture.emit.
-_sink: ContextVar[MemoryObjectSendStream[Event] | None] = ContextVar(
-    "sink", default=None
-)
+_sink: ContextVar[MemoryObjectSendStream[Event] | None] = ContextVar("sink", default=None)
 
 
 def get(sid: str | None) -> Session | None:
@@ -152,9 +148,7 @@ async def stream_solve(
                 break
 
 
-async def _run_solve(
-    session: Session, preset: Preset, send: MemoryObjectSendStream[Event]
-) -> None:
+async def _run_solve(session: Session, preset: Preset, send: MemoryObjectSendStream[Event]) -> None:
     """Run the blocking solve in a worker thread, closing the stream when it ends.
 
     Args:
@@ -164,16 +158,12 @@ async def _run_solve(
             iteration terminates.
     """
     try:
-        await to_thread.run_sync(
-            _solve_to_stream, session, preset, send, limiter=_solves
-        )
+        await to_thread.run_sync(_solve_to_stream, session, preset, send, limiter=_solves)
     finally:
         send.close()
 
 
-def _solve_to_stream(
-    session: Session, preset: Preset, send: MemoryObjectSendStream[Event]
-) -> None:
+def _solve_to_stream(session: Session, preset: Preset, send: MemoryObjectSendStream[Event]) -> None:
     """Worker-thread body: solve, then push results (and, via `_sink`, logs) to `send`.
 
     Runs off the event loop, so it hands every event back with `from_thread`. Any failure
@@ -186,10 +176,8 @@ def _solve_to_stream(
     """
 
     def push(kind: str, payload: object) -> None:
-        try:
+        with suppress(Exception):
             from_thread.run_sync(send.send_nowait, (kind, payload))
-        except Exception:  # noqa: BLE001 -- consumer gone (disconnect); drop the event
-            pass
 
     token = _sink.set(send)
     try:
@@ -199,7 +187,7 @@ def _solve_to_stream(
         for chart in result["plots"]:
             push("chart", chart)
         push("done", "")
-    except Exception as exc:  # noqa: BLE001 -- surface any solve failure to the user
+    except Exception as exc:
         log.exception("Solve failed")
         push("error", str(exc))
     finally:
@@ -218,10 +206,8 @@ class _Capture(logging.Handler):
         send = _sink.get()
         if send is None:
             return
-        try:
+        with suppress(Exception):
             from_thread.run_sync(send.send_nowait, ("log", record.getMessage()))
-        except Exception:  # noqa: BLE001 -- a log line must never break the solve
-            pass
 
 
 # Loggers surfaced to the live console during a solve: our own progress plus pypsa and

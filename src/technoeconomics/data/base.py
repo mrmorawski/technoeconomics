@@ -1,4 +1,4 @@
-"""Core data-access contract: the [`Dataset`][technoeconomics.data.Dataset] type and dataset resolution."""
+"""Core data-access contract: the `Dataset` type and dataset resolution."""
 
 from __future__ import annotations
 

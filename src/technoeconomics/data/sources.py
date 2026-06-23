@@ -20,7 +20,7 @@ class Constant(Dataset[float]):
 
     value: float
 
-    def compute(self, snapshots: pd.DatetimeIndex) -> float:
+    def compute(self, _snapshots: pd.DatetimeIndex) -> float:
         """Return ``value``."""
         return float(self.value)
 
@@ -46,10 +46,6 @@ class Sinusoidal(Dataset[pd.Series]):
 
     def compute(self, snapshots: pd.DatetimeIndex) -> pd.Series:
         """Return the sine wave sampled at ``snapshots``."""
-        hours = np.asarray(
-            (snapshots - snapshots[0]) / pd.Timedelta(hours=1), dtype=float
-        )
-        values = self.mean + self.amplitude * np.sin(
-            2 * np.pi * (hours - self.phase) / self.period
-        )
+        hours = np.asarray((snapshots - snapshots[0]) / pd.Timedelta(hours=1), dtype=float)
+        values = self.mean + self.amplitude * np.sin(2 * np.pi * (hours - self.phase) / self.period)
         return pd.Series(values, index=snapshots)

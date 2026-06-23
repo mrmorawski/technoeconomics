@@ -48,9 +48,7 @@ class ComponentForm:
     color: str | None  # the component's carrier colour, for a coloured accent
 
 
-def _walk(
-    prefix: str, value: object, advanced: bool
-) -> Iterator[tuple[str, float, bool]]:
+def _walk(prefix: str, value: object, advanced: bool) -> Iterator[tuple[str, float, bool]]:
     """Yield ``(path, value, advanced)`` for each scalar leaf at or under `value`.
 
     Recurses into nested datasets, so a `Sinusoidal` (mean/amplitude/period/phase) becomes
@@ -77,9 +75,7 @@ def plant_to_form(plant: Plant) -> list[ComponentForm]:
             advanced = bool(f.metadata.get("advanced"))
             for path, leaf, adv in _walk(f"{component.id}.{f.name}", value, advanced):
                 params.append(
-                    Param(
-                        path=path, label=path.split(".", 1)[1], value=leaf, advanced=adv
-                    )
+                    Param(path=path, label=path.split(".", 1)[1], value=leaf, advanced=adv)
                 )
         out.append(
             ComponentForm(
@@ -123,9 +119,7 @@ def form_to_plant(base: Plant, form: Mapping[str, str]) -> Plant:
         node = by_id.get(cid)
         if node is None or not path:
             continue
-        for k in path[
-            :-1
-        ]:  # walk to the leaf's parent, skipping keys that don't resolve
+        for k in path[:-1]:  # walk to the leaf's parent, skipping keys that don't resolve
             if not isinstance(node, dict) or k not in node:
                 node = None
                 break

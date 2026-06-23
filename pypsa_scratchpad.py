@@ -32,9 +32,7 @@ def annual_cost(overnight_cost, lifetime_years):
     return overnight_cost * (crf + O_M_FRACTION)
 
 
-c = atlite.Cutout(
-    bounds=BOUNDS, time=SNAPSHOTS, path="scratchpad_cutout.nc", module="era5-edh"
-)
+c = atlite.Cutout(bounds=BOUNDS, time=SNAPSHOTS, path="scratchpad_cutout.nc", module="era5-edh")
 
 c.prepare()
 
@@ -48,7 +46,7 @@ pv = c.pv(
 pv_point = pv.sel(x=LOCATION[0], y=LOCATION[1], method="nearest").to_pandas()  # ty: ignore[unresolved-attribute]
 
 n = pypsa.Network()
-# pypsa has an invalid signature in set_snapshots, but DatetimeIndex works here, it's even in the docs
+# pypsa has an invalid signature in set_snapshots, but DatetimeIndex works here.
 n.set_snapshots(snapshots=SNAPSHOTS)  # ty: ignore[invalid-argument-type]
 n.add("Bus", ["heat", "electricity"], carrier=["heat", "electricity"])
 n.add(
@@ -101,10 +99,7 @@ n.add(
 
 n.optimize(solver_name="highs")
 
-tsc = (
-    pd.concat([n.statistics.capex(), n.statistics.opex()], axis=1).sum(axis=1).div(1e3)
-)
-tsc
+tsc = pd.concat([n.statistics.capex(), n.statistics.opex()], axis=1).sum(axis=1).div(1e3)
 
 print(f"Total system cost\n{tsc}\nOptimal capacity\n{n.statistics.optimal_capacity()}")
 
