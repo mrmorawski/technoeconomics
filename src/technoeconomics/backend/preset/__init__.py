@@ -37,6 +37,4 @@ def get(name: str) -> type[Preset]:
     try:
         return _PRESETS[name]
     except KeyError:
-        raise KeyError(
-            f"unknown preset {name!r}; available: {sorted(_PRESETS)}"
-        ) from None
+        raise KeyError(f"unknown preset {name!r}; available: {sorted(_PRESETS)}") from None

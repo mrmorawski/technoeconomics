@@ -50,9 +50,7 @@ def annual_snapshots(year: int = 2013, freq: str = "h") -> pd.DatetimeIndex:
     Convenience for the common case; `Plant.snapshots` accepts any
     `pandas.DatetimeIndex`.
     """
-    return pd.date_range(
-        f"{year}-01-01", f"{year + 1}-01-01", freq=freq, inclusive="left"
-    )
+    return pd.date_range(f"{year}-01-01", f"{year + 1}-01-01", freq=freq, inclusive="left")
 
 
 @dataclass
@@ -108,7 +106,7 @@ class Plant:
         return n
 
     def to_dict(self) -> dict:
-        """Serialise to a JSON-able dict; round-trips through [`from_dict`][technoeconomics.model.plant.Plant.from_dict].
+        """Serialise to a JSON-able dict.
 
         Delegates to each bus's and component's own ``to_dict``; bus references on
         components are encoded as bus ids and data-source fields as tagged dicts.
