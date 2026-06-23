@@ -1,0 +1,37 @@
+[Unit]
+Description=Technoeconomics FastAPI application
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User={{APP_USER}}
+Group={{APP_USER}}
+WorkingDirectory={{APP_DIR}}
+Environment=PYTHONUNBUFFERED=1
+Environment=HOME={{STATE_DIR}}
+Environment=XDG_CACHE_HOME={{CACHE_DIR}}
+Environment=TECHNOECONOMICS_APP_DIR={{APP_DIR}}
+Environment=TECHNOECONOMICS_STATE_DIR={{STATE_DIR}}
+Environment=TECHNOECONOMICS_CACHE_DIR={{CACHE_DIR}}
+Environment=TECHNOECONOMICS_LOG_DIR={{LOG_DIR}}
+Environment=TECHNOECONOMICS_BRANCH={{BRANCH}}
+Environment=TECHNOECONOMICS_HOST=127.0.0.1
+Environment=TECHNOECONOMICS_PORT=8000
+Environment=TECHNOECONOMICS_UV=/usr/local/bin/uv
+ExecStart=/usr/bin/python3 {{APP_DIR}}/deploy/native/supervisor.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGINT
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{APP_DIR}} {{STATE_DIR}} {{CACHE_DIR}} {{LOG_DIR}} /tmp
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+UMask=027
+
+[Install]
+WantedBy=multi-user.target

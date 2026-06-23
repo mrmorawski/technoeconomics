@@ -1,0 +1,16 @@
+[DEFAULT]
+bantime = 1h
+findtime = 10m
+maxretry = 5
+
+[sshd]
+enabled = true
+
+[caddy-scanners]
+enabled = true
+filter = caddy-scanners
+logpath = /var/log/caddy/technoeconomics-access.log
+port = http,https
+maxretry = 3
+findtime = 10m
+bantime = 6h
