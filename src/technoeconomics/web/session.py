@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import enum
 import logging
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -23,10 +22,7 @@ from technoeconomics.backend.solve import solve as _solve
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
 
-    from anyio.streams.memory import (
-        MemoryObjectReceiveStream,
-        MemoryObjectSendStream,
-    )
+    from anyio.streams.memory import MemoryObjectSendStream
 
     from technoeconomics.backend.preset import Preset
     from technoeconomics.model.plant import Plant
@@ -35,15 +31,8 @@ log = logging.getLogger(__name__)
 
 # Cap concurrent solves across all sessions within AnyIO's shared thread pool.
 _solves = CapacityLimiter(8)
-
-
-class SolveStatus(enum.StrEnum):
-    """Solve state machine."""
-
-    IDLE = "idle"
-    SOLVING = "solving"
-    DONE = "done"
-    FAILED = "failed"
+# Events kept per session; tail events (numbers/chart/done) must survive a chatty run.
+_HISTORY_CAP = 512
 
 
 class Session:
@@ -61,14 +50,11 @@ class Session:
     def __init__(self, id: str, plant: Plant) -> None:
         self.id = id
         self.plant = plant
-        self.status = SolveStatus.IDLE
-        # One bounded stream per session: the solve worker sends progress, `events` drains it.
-        self._send: MemoryObjectSendStream[ServerSentEvent]
-        self._receive: MemoryObjectReceiveStream[ServerSentEvent]
-        self._send, self._receive = create_memory_object_stream[ServerSentEvent](256)
+        self._history: list[ServerSentEvent] = []
+        self._subscribers: set[MemoryObjectSendStream[ServerSentEvent]] = set()
         self._task: asyncio.Task[None] | None = None  # retain the in-flight solve task
 
-    def launch(self, plant: Plant, preset: Preset) -> None:
+    def launch(self, plant: Plant, preset: Preset) -> bool:
         """Launch a solve in the background and return at once.
 
         Ignored while a solve is already in flight -- one per session; the check runs on the
@@ -78,18 +64,22 @@ class Session:
         abandoned on cancellation, since a worker thread can't be interrupted mid-solve.
 
         Args:
-            plant: The plant to solve (passed by value, so a later edit to `self.plant`
-                cannot change what an in-flight solve is computing).
+            plant: The plant to solve. Route handlers rebind `session.plant` to a new object
+                rather than mutating it, so the in-flight solve keeps computing the plant it
+                was given.
             preset: The preset supplying which numbers and plots to compute.
+
+        Returns:
+            ``True`` if the solve was launched, ``False`` if one is already in flight.
         """
         if self._task is not None and not self._task.done():
-            return
-        self.status = SolveStatus.SOLVING
+            return False
         self._task = asyncio.create_task(
             to_thread.run_sync(
                 self._run_solve, plant, preset, abandon_on_cancel=True, limiter=_solves
             )
         )
+        return True
 
     def _run_solve(self, plant: Plant, preset: Preset) -> None:
         """Solve in a worker thread, pushing the numbers, charts, and a terminal event.
@@ -105,26 +95,22 @@ class Session:
             for chart in result["plots"]:
                 self._push(ServerSentEvent(event="chart", data=chart))
             self._push(ServerSentEvent(event="done", raw_data=""))
-            self.status = SolveStatus.DONE
         except Exception as exc:  # noqa: BLE001 -- surface any solve failure to the user
             log.exception("Solve failed")
-            self.status = SolveStatus.FAILED
             self._push(ServerSentEvent(event="failed", raw_data=str(exc)))
 
     def _push(self, event: ServerSentEvent) -> None:
-        """Hand a progress event to the loop's send stream, dropping it if it can't be sent.
+        """Hand a progress event to `report` on the event loop, dropping it if the loop is gone.
 
-        Called from the solve worker thread, so it hops to the event loop via `from_thread` to
-        touch the (not thread-safe) memory stream. It never blocks: `send_nowait` raises rather
-        than awaits, and a full buffer (`WouldBlock`) or a closed stream just drops the
-        event -- progress is best-effort.
+        Called from the solve worker thread; hops to the event loop via `from_thread` where
+        `report` does history + broadcast. Never blocks the solve.
 
         Args:
-            event: The event to enqueue for the page.
+            event: The event to deliver.
         """
         try:
-            from_thread.run_sync(self._send.send_nowait, event)
-        except Exception:  # noqa: BLE001 -- WouldBlock/closed/loop gone: progress is best-effort
+            from_thread.run_sync(self.report, event)
+        except Exception:  # noqa: BLE001 -- loop gone: progress is best-effort
             pass
 
     def _message(self, text: str) -> None:
@@ -140,37 +126,50 @@ class Session:
         self._push(ServerSentEvent(event="progress", raw_data=text))
 
     def report(self, event: ServerSentEvent) -> None:
-        """Push an event from the event loop (e.g. a route handler), dropping it if it can't be sent.
+        """Loop-side history-append and broadcast point; `_push` funnels into this from threads.
 
-        The loop-side counterpart of [`_push`][technoeconomics.web.session.Session._push]: the
-        caller is already on the event loop, so it touches the stream directly rather than
-        hopping through `from_thread`. Used to surface a ``start``/``failed`` event when a
-        request launches (or rejects) a solve.
+        Called directly from route handlers (already on the loop) or via `_push` from the
+        worker thread. Clears history on ``start`` so a new run's replay supersedes the old
+        one; then appends, caps the tail, and broadcasts best-effort to every registered stream.
 
         Args:
-            event: The event to enqueue for the page.
+            event: The event to record and deliver.
         """
-        try:
-            self._send.send_nowait(event)
-        except Exception:  # noqa: BLE001 -- WouldBlock/closed: progress is best-effort
-            pass
+        if event.event == "start":
+            self._history.clear()
+        self._history.append(event)
+        del self._history[:-_HISTORY_CAP]
+        for send in list(self._subscribers):
+            try:
+                send.send_nowait(event)
+            except Exception:  # noqa: BLE001 -- WouldBlock/closed: progress is best-effort
+                pass
 
     async def events(self) -> AsyncIterator[ServerSentEvent]:
-        """Yield this session's progress events for the SSE endpoint to encode.
+        """Yield this session's progress events for one SSE connection.
 
-        An async generator (it holds no thread while idle, so many open streams cost ~nothing)
-        that relays each event off the receive stream. It does not close the stream on exit, so
-        a client that disconnects and reconnects resumes the same session's progress; the
-        stream is closed once, in [`aclose`][technoeconomics.web.session.Session.aclose].
+        Each connection gets its own fresh memory stream registered in `_subscribers`, so
+        multiple open tabs each receive every event. History is replayed first, so a reloaded
+        page immediately gets the last run's results back. Registering and snapshotting happen
+        in one synchronous block on the single-threaded loop, so there is no gap or duplication.
+        The subscriber is unregistered when the connection closes (generator finalised).
 
         Yields:
-            Each `ServerSentEvent` as it is pushed.
+            Each `ServerSentEvent`, starting with any replayed history then live events.
         """
-        async for event in self._receive:
-            yield event
+        send, receive = create_memory_object_stream[ServerSentEvent](256)
+        self._subscribers.add(send)
+        try:
+            for event in list(self._history):
+                yield event
+            async for event in receive:
+                yield event
+        finally:
+            self._subscribers.discard(send)
+            send.close()
 
     async def aclose(self) -> None:
-        """Cancel any in-flight solve and close the progress stream.
+        """Cancel any in-flight solve and close all subscriber streams.
 
         Called at application shutdown so a live session leaves behind no worker task. The
         cancelled solve's worker thread keeps running (it cannot be interrupted) but is
@@ -184,7 +183,8 @@ class Session:
                 pass  # the in-flight solve's cancellation, expected
             except Exception:  # noqa: BLE001 -- a failing solve must not block teardown
                 log.exception("In-flight solve failed during close")
-        self._send.close()  # ends any active `events` stream with end-of-stream
+        for send in list(self._subscribers):
+            send.close()
 
 
 class SessionManager:
@@ -196,7 +196,7 @@ class SessionManager:
 
     Args:
         maxsize: Maximum number of live sessions before the oldest is evicted.
-        ttl: Seconds a session survives without being accessed.
+        ttl: Seconds a session survives without being accessed (each access resets the timer).
     """
 
     def __init__(self, *, maxsize: int = 64, ttl: float = 30 * 60):
@@ -205,13 +205,20 @@ class SessionManager:
     def get(self, sid: str | None) -> Session | None:
         """Look up a live session by cookie id.
 
+        Re-inserting on a hit refreshes the TTL, so the timer behaves as an idle timeout.
+
         Args:
             sid: The opaque session id from the cookie, or ``None`` if absent.
 
         Returns:
             The session, or ``None`` if there is no id or it has expired.
         """
-        return self._cache.get(sid) if sid else None
+        if not sid:
+            return None
+        session = self._cache.get(sid)
+        if session is not None:
+            self._cache[sid] = session
+        return session
 
     def create(self, plant: Plant) -> tuple[str, Session]:
         """Mint a fresh session for a plant under a new id.
@@ -242,7 +249,7 @@ class SessionManager:
             session was minted (so the caller knows to set the cookie).
         """
         if sid is not None:
-            session = self._cache.get(sid)
+            session = self.get(sid)
             if session is not None:
                 return sid, session
         return self.create(make_plant())

@@ -124,6 +124,7 @@ async def industrial_heat_reset(request: Request):
 @app.post("/industrial_heat/share", response_class=HTMLResponse)
 async def industrial_heat_share(request: Request):
     """Build a shareable link encoding the current (edited) plant."""
+    # TODO: run solve on share
     cookie_sid = request.cookies.get("sid")
     sid, session = sessions.get_or_create(cookie_sid, IndustrialHeat().build)
     form = await request.form()
@@ -141,7 +142,10 @@ async def industrial_heat_share(request: Request):
 
 @app.post("/industrial_heat/solve")
 async def industrial_heat_solve(request: Request) -> Response:
-    """Record the edited plant and launch its solve in the background."""
+    """Record the edited plant and launch its solve in the background.
+
+    If a solve is already in flight, a console message is appended to the running run instead.
+    """
     preset = IndustrialHeat()
     cookie_sid = request.cookies.get("sid")
     sid, session = sessions.get_or_create(cookie_sid, preset.build)
@@ -152,8 +156,14 @@ async def industrial_heat_solve(request: Request) -> Response:
     except ValueError as exc:
         session.report(ServerSentEvent(event="failed", raw_data=str(exc)))
     else:
-        session.report(ServerSentEvent(event="start", raw_data=""))
-        session.launch(session.plant, preset)
+        if session.launch(session.plant, preset):
+            session.report(ServerSentEvent(event="start", raw_data=""))
+        else:
+            session.report(
+                ServerSentEvent(
+                    event="progress", raw_data="A solve is already running."
+                )
+            )
     response = Response(status_code=204)
     if sid != cookie_sid:
         response.set_cookie("sid", sid, httponly=True, samesite="lax")
