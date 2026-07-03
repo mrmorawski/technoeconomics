@@ -1,9 +1,11 @@
 """Encode/decode a plant as a compact, URL-safe share token.
 
 A token is ``base64url(gzip(json(plant.to_dict())))`` -- enough to reconstruct the plant from
-a link with no server-side storage. `decode` is deliberately defensive: a ``?p=`` value is
-untrusted input, so every malformed or oversized token raises `ValueError` rather than
-crashing the page or expanding without bound (a gzip bomb).
+a link with no server-side storage. The JSON carries a schema version (see `Plant.to_dict`), so
+a token from an incompatible schema is rejected rather than silently mis-decoded. `decode` is
+deliberately defensive: a ``?p=`` value is untrusted input, so every malformed, stale, or
+oversized token raises `ValueError` rather than crashing the page or expanding without bound
+(a gzip bomb).
 """
 
 from __future__ import annotations

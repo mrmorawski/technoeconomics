@@ -5,37 +5,26 @@ A model is composed of components connected through carriers.
 
 ```python
 from technoeconomics.data import Constant, Sinusoidal
-from technoeconomics.model.structure import Bus
 
-electricity = Bus(id="electricity", carrier="electricity")
-heat = Bus(id="heat", carrier="heat")
-
-heat_pump = HeatPump(electricity_bus=electricity, heat_bus=heat, capex=Constant(900))
+heat_pump = HeatPump(
+    electricity_bus="electricity", heat_bus="heat", capex=Constant(900)
+)
 grid = GridElectricity(
-    bus=electricity, price=Sinusoidal(mean=120, amplitude=40, period=24)
+    bus="electricity", price=Sinusoidal(mean=120, amplitude=40, period=24)
 )
 ```
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import Annotated, TYPE_CHECKING
 
-import numpy as np
-import pandas as pd
 from pydantic import ConfigDict
 
-from technoeconomics.data import (
-    Dataset,
-    ScalarDataset,
-    SeriesDataset,
-    Timeseries,
-    concrete_subclasses,
-)
-from technoeconomics.data.base import type_adapter
-from technoeconomics.model.structure import Bus
+from technoeconomics.data import Scalar, ScalarDataset, SeriesDataset, Timeseries
+from technoeconomics.serialise import tagged_codec
 
 if TYPE_CHECKING:
     import pypsa
@@ -99,6 +88,10 @@ class Component:
     A component is a dataclass of technoeconomic parameters plus ``add_to_network()``
     -- a recipe for building a PyPSA component integrated into a model.
 
+    Bus references are held as bus ids (strings) by name convention: a field named
+    ``bus`` or ending in ``_bus`` is a reference to a bus in `Plant.buses`. The plant
+    checks these on construction (every reference must name an existing bus).
+
     Attributes:
         id: Unique name within the plant; used as the PyPSA component name and as
             its own carrier, so results are attributable per component. Optional --
@@ -110,9 +103,10 @@ class Component:
             assigns one when the network is sanitised.
     """
 
-    # Inherited by every component (authors never write it): lets the field validator in
-    # `from_dict` accept Bus references and pandas/Dataset values as opaque arbitrary types.
-    __pydantic_config__ = ConfigDict(arbitrary_types_allowed=True)
+    # Inherited by every component (authors never write it). ``arbitrary_types_allowed``
+    # lets pydantic treat the ndarray/Series values a `Timeseries` field may hold as opaque;
+    # ``extra="forbid"`` rejects unknown keys when decoding an untrusted share link.
+    __pydantic_config__ = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
     id: str = ""
     enabled: bool = True
@@ -126,62 +120,10 @@ class Component:
         """
         raise NotImplementedError
 
-    def to_dict(self) -> dict:
-        """Serialise to a plain dict."""
-        out: dict = {"__type__": type(self).__name__}
-        for f in fields(self):
-            v = getattr(self, f.name)
-            if isinstance(v, Bus):
-                out[f.name] = {"__bus__": v.id}
-            elif isinstance(v, Dataset):
-                out[f.name] = v.to_dict()
-            elif isinstance(v, (pd.Series, np.ndarray)):
-                out[f.name] = v.tolist()
-            else:
-                out[f.name] = v
-        return out
 
-    @classmethod
-    def from_dict(cls, d: dict, buses: dict[str, Bus]) -> Component:
-        """Reconstruct a component, relinking bus refs by id and rebuilding datasets.
-
-        Validated, as it may come from an untrusted share link: the type must be known, every
-        field must exist on it, bus references must resolve, and a parameter given as a literal
-        must be a number (or a series of numbers) -- not, say, a string that would only fail
-        later at solve time.
-
-        Args:
-            d: A dict produced by [`to_dict`][technoeconomics.model.component.Component.to_dict].
-            buses: The plant's buses keyed by id, used to relink bus references.
-
-        Returns:
-            The reconstructed component.
-
-        Raises:
-            ValueError: If `d` is not a valid component.
-        """
-        if not isinstance(d, dict):
-            raise ValueError("component must be an object")
-        name = d.get("__type__")
-        registry = concrete_subclasses(Component)
-        if name not in registry:
-            raise ValueError(f"unknown component type: {name!r}")
-        kwargs: dict = {}
-        for k, v in d.items():
-            if k == "__type__":
-                continue
-            if isinstance(v, dict) and "__bus__" in v:
-                if v["__bus__"] not in buses:
-                    raise ValueError(f"{name}.{k}: unknown bus {v['__bus__']!r}")
-                kwargs[k] = buses[v["__bus__"]]
-            elif isinstance(v, dict) and "__dataset__" in v:
-                kwargs[k] = Dataset.from_dict(v)
-            else:
-                kwargs[k] = v
-        # The class's pydantic `TypeAdapter` validates the scalar fields (e.g. rejects a
-        # string in a numeric field) and constructs the component; the bus and dataset
-        # objects relinked above are kept as-is (opaque arbitrary types).
-        return type_adapter(registry[name]).validate_python(kwargs)
+_component_validate, _component_dump = tagged_codec(Component)
+type AnyComponent = Annotated[Component, _component_validate, _component_dump]
+"""A component (de)serialised through the class-name-tagged subclass registry."""
 
 
 @dataclass(kw_only=True)
@@ -195,17 +137,17 @@ class GridElectricity(Component):
         capex: Annuitised investment cost [EUR/MW].
     """
 
-    bus: Bus
-    price: float | Timeseries | SeriesDataset = 120.0
-    max_capacity: float | ScalarDataset = _advanced(1000)
-    capex: float | ScalarDataset = _advanced(0)
+    bus: str
+    price: Scalar | Timeseries | SeriesDataset = 120.0
+    max_capacity: Scalar | ScalarDataset = _advanced(1000)
+    capex: Scalar | ScalarDataset = _advanced(0)
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `Generator` injecting electricity at `price`."""
         n.add(
             "Generator",
             self.id,
-            bus=self.bus.id,
+            bus=self.bus,
             carrier=self.id,
             marginal_cost=self.price,
             capital_cost=self.capex,
@@ -225,18 +167,18 @@ class HeatPump(Component):
         capex: Annuitised investment cost [EUR/MW of electricity input].
     """
 
-    electricity_bus: Bus
-    heat_bus: Bus
-    cop: float | Timeseries | SeriesDataset = 3.0
-    capex: float | ScalarDataset = _advanced(900000.0)
+    electricity_bus: str
+    heat_bus: str
+    cop: Scalar | Timeseries | SeriesDataset = 3.0
+    capex: Scalar | ScalarDataset = _advanced(900000.0)
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `Process` converting electricity (`rate0=-1`) to heat (`rate1=cop`)."""
         n.add(
             "Process",
             self.id,
-            bus0=self.electricity_bus.id,
-            bus1=self.heat_bus.id,
+            bus0=self.electricity_bus,
+            bus1=self.heat_bus,
             carrier=self.id,
             rate1=self.cop,
             capital_cost=self.capex,
@@ -255,18 +197,18 @@ class ElectricBoiler(Component):
         capex: Annuitised investment cost [EUR/MW of electricity input].
     """
 
-    electricity_bus: Bus
-    heat_bus: Bus
-    efficiency: float | Timeseries | SeriesDataset = 0.99
-    capex: float | ScalarDataset = _advanced(100.0)
+    electricity_bus: str
+    heat_bus: str
+    efficiency: Scalar | Timeseries | SeriesDataset = 0.99
+    capex: Scalar | ScalarDataset = _advanced(100.0)
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `Process` converting electricity to heat at `efficiency`."""
         n.add(
             "Process",
             self.id,
-            bus0=self.electricity_bus.id,
-            bus1=self.heat_bus.id,
+            bus0=self.electricity_bus,
+            bus1=self.heat_bus,
             carrier=self.id,
             rate1=self.efficiency,
             capital_cost=self.capex,
@@ -289,10 +231,10 @@ class Battery(Component):
             free, leaving the dispatch split degenerate (non-physical "wash").
     """
 
-    bus: Bus
-    max_hours: float | ScalarDataset = 4.0
-    capex: float | ScalarDataset = _advanced(12000.0)
-    round_trip_efficiency: float | ScalarDataset = _advanced(0.85)
+    bus: str
+    max_hours: Scalar | ScalarDataset = 4.0
+    capex: Scalar | ScalarDataset = _advanced(12000.0)
+    round_trip_efficiency: Scalar | ScalarDataset = _advanced(0.85)
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `StorageUnit` on the electricity bus."""
@@ -302,7 +244,7 @@ class Battery(Component):
         n.add(
             "StorageUnit",
             self.id,
-            bus=self.bus.id,
+            bus=self.bus,
             carrier=self.id,
             max_hours=self.max_hours,
             capital_cost=self.capex,
@@ -322,15 +264,15 @@ class HeatDemand(Component):
         load: Heat demand [MW].
     """
 
-    bus: Bus
-    load: float | Timeseries | SeriesDataset = 10.0
+    bus: str
+    load: Scalar | Timeseries | SeriesDataset = 10.0
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `Load` representing the heat demand."""
         n.add(
             "Load",
             self.id,
-            bus=self.bus.id,
+            bus=self.bus,
             carrier=self.id,
             p_set=self.load,
         )

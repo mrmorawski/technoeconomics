@@ -6,9 +6,10 @@ The form is the user's source of truth for a model's editable parameters.
   per-component field descriptors the page renders, recursing into dataset parameters so a
   `Sinusoidal` price exposes ``price.mean``, ``price.amplitude``, ... as separate inputs.
 - [`form_to_plant`][technoeconomics.web.forms.form_to_plant] writes a submission back
-  *functionally*: serialise the plant, overlay the submitted scalars onto that plain dict by
-  dotted path, and rebuild. The datasets are frozen, so editing the dict (not the objects) is
-  the simple path -- and it reuses the existing `to_dict`/`from_dict` serialisation contract.
+  *functionally*: serialise the plant to its plain dict, overlay the submitted scalars onto
+  that dict by dotted path, and rebuild. The datasets are frozen, so editing the dict (not
+  the objects) is the simple path -- and it reuses the plant's `to_dict`/`from_dict`, whose
+  dotted shape (e.g. ``grid.price.mean``) is exactly the pydantic dump of the plant.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ from typing import TYPE_CHECKING
 
 from technoeconomics.data import Dataset
 from technoeconomics.model.plant import Plant
-from technoeconomics.model.structure import Bus
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
@@ -72,8 +72,6 @@ def plant_to_form(plant: Plant) -> list[ComponentForm]:
             if f.name in _HIDDEN_FIELDS:
                 continue
             value = getattr(component, f.name)
-            if isinstance(value, Bus):
-                continue
             advanced = bool(f.metadata.get("advanced"))
             for path, leaf, adv in _walk(f"{component.id}.{f.name}", value, advanced):
                 params.append(

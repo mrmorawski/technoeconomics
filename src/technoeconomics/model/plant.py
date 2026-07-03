@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import TYPE_CHECKING
 
 import pandas as pd
 
 from technoeconomics.data import resolve_datasets
-from technoeconomics.model.component import Component
+from technoeconomics.model.component import AnyComponent, Component
 from technoeconomics.model.structure import Bus
+from technoeconomics.serialise import Snapshots, type_adapter
 
 if TYPE_CHECKING:
     import pypsa
@@ -44,6 +45,11 @@ def _assign_ids(components: list[Component]) -> None:
         taken.add(candidate)
 
 
+def _is_bus_ref(name: str) -> bool:
+    """Bus-reference field naming convention: a field named ``bus`` or ending in ``_bus``."""
+    return name == "bus" or name.endswith("_bus")
+
+
 def annual_snapshots(year: int = 2013, freq: str = "h") -> pd.DatetimeIndex:
     """Snapshots spanning one calendar year (hourly by default).
 
@@ -63,20 +69,43 @@ class Plant:
         name: Human-readable model name.
         snapshots: Optimisation horizon (use [`annual_snapshots`][] or any index).
         buses: Named nodes; several may share a carrier (e.g. multiple heat buses).
-        components: Building blocks referencing `buses` directly. Components may omit
+        components: Building blocks referencing `buses` by id. Components may omit
             `id`; blanks are filled from the snake-case class name and enumerated
             (``heat_pump``, ``heat_pump_2``, ...) so every component ends up uniquely
             named.
     """
 
     name: str
-    snapshots: pd.DatetimeIndex
+    snapshots: Snapshots
     buses: list[Bus]
-    components: list[Component]
+    components: list[AnyComponent]
 
     def __post_init__(self) -> None:
-        """Resolve any blank component ids so every component is uniquely named."""
+        """Assign blank component ids and check referential integrity.
+
+        Rejects duplicate bus ids, duplicate explicit component ids, and any bus
+        reference (a component field named ``bus`` or ending in ``_bus``) that does not
+        name a bus in `buses`. Runs on every construction, including the pydantic decode
+        of an untrusted share link, so a malformed plant is refused at the boundary.
+
+        Raises:
+            ValueError: If bus ids collide, explicit component ids collide, or a component
+                references a bus id absent from `buses`.
+        """
+        bus_ids = [b.id for b in self.buses]
+        if len(bus_ids) != len(set(bus_ids)):
+            raise ValueError("duplicate bus id")
+        explicit = [c.id for c in self.components if c.id]
+        if len(explicit) != len(set(explicit)):
+            raise ValueError("duplicate component id")
         _assign_ids(self.components)
+        known = set(bus_ids)
+        for c in self.components:
+            for f in fields(c):
+                if _is_bus_ref(f.name):
+                    ref = getattr(c, f.name)
+                    if ref not in known:
+                        raise ValueError(f"{c.id}.{f.name}: unknown bus {ref!r}")
 
     def build_network(self) -> pypsa.Network:
         """Compile this plant into a disposable PyPSA network ready to optimise.
@@ -110,24 +139,20 @@ class Plant:
     def to_dict(self) -> dict:
         """Serialise to a JSON-able dict; round-trips through [`from_dict`][technoeconomics.model.plant.Plant.from_dict].
 
-        Delegates to each bus's and component's own ``to_dict``; bus references on
-        components are encoded as bus ids and data-source fields as tagged dicts.
+        The whole plant is one declared pydantic schema: buses become plain dicts, bus
+        references stay bus ids, snapshots compress to ``{start, periods, freq}``, and each
+        component/dataset is a class-name-tagged dict. The output is stamped with a schema
+        version so old share links can be rejected rather than silently mis-decoded.
         """
-        return {
-            "name": self.name,
-            "snapshots": _snapshots_to_dict(self.snapshots),
-            "buses": [b.to_dict() for b in self.buses],
-            "components": [c.to_dict() for c in self.components],
-        }
+        return {"v": 1, **type_adapter(Plant).dump_python(self, mode="json")}
 
     @classmethod
     def from_dict(cls, d: dict) -> Plant:
         """Reconstruct a plant from [`to_dict`][technoeconomics.model.plant.Plant.to_dict] output.
 
-        Buses are rebuilt first and indexed by id, so component bus references can be relinked
-        to the same `Bus` objects the plant holds. The structure is validated, as it may come
-        from an untrusted share link; a component referencing an unknown bus id is rejected by
-        [`Component.from_dict`][technoeconomics.model.component.Component.from_dict].
+        The pydantic schema validates the structure and every field, and `__post_init__`
+        checks referential integrity, so an invalid share link is rejected here rather than
+        failing later at solve time.
 
         Args:
             d: A dict produced by [`to_dict`][technoeconomics.model.plant.Plant.to_dict].
@@ -136,42 +161,12 @@ class Plant:
             The reconstructed plant.
 
         Raises:
-            ValueError: If `d` lacks the expected name/snapshots/buses/components structure, or
-                any bus, component, or dataset within it is invalid.
+            ValueError: If `d` is not a dict, carries an unsupported schema version, or is
+                not a valid plant (pydantic's `ValidationError` is itself a `ValueError`).
         """
         if not isinstance(d, dict):
             raise ValueError("plant must be an object")
-        for key, kind in (
-            ("name", str),
-            ("snapshots", dict),
-            ("buses", list),
-            ("components", list),
-        ):
-            if not isinstance(d.get(key), kind):
-                raise ValueError(f"plant: '{key}' must be a {kind.__name__}")
-        buses = [Bus.from_dict(b) for b in d["buses"]]
-        by_id = {b.id: b for b in buses}
-        return cls(
-            name=d["name"],
-            snapshots=_snapshots_from_dict(d["snapshots"]),
-            buses=buses,
-            components=[Component.from_dict(c, by_id) for c in d["components"]],
-        )
-
-
-def _snapshots_to_dict(index: pd.DatetimeIndex) -> dict:
-    """Encode a snapshot index compactly (by freq when regular, else explicit values)."""
-    if index.freq is not None:
-        return {
-            "start": index[0].isoformat(),
-            "periods": len(index),
-            "freq": index.freqstr,
-        }
-    return {"values": [t.isoformat() for t in index]}
-
-
-def _snapshots_from_dict(d: dict) -> pd.DatetimeIndex:
-    """Rebuild a snapshot index from `_snapshots_to_dict` output."""
-    if "values" in d:
-        return pd.DatetimeIndex(d["values"])
-    return pd.date_range(start=d["start"], periods=d["periods"], freq=d["freq"])
+        payload = dict(d)
+        if payload.pop("v", None) != 1:
+            raise ValueError("unsupported plant version")
+        return type_adapter(cls).validate_python(payload)
