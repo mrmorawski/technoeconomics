@@ -151,7 +151,7 @@ class GridElectricity(Component):
             carrier=self.id,
             marginal_cost=self.price,
             capital_cost=self.capex,
-            p_max=self.max_capacity,
+            p_nom_max=self.max_capacity,
             p_nom_extendable=True,
         )
 
