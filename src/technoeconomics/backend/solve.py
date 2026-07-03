@@ -31,10 +31,18 @@ def solve(plant: Plant, preset: Preset) -> dict:
     emit("Building network…")
     n = plant.build_network()
     emit("Solving…")
-    # TODO: use faster solver config, pdlp, many threads etc.
-    status, condition = n.optimize(solver_name="highs")
+    status, condition = n.optimize(
+        solver_name="highs",
+        solver_options={
+            "solver": "pdlp",
+            "presolve": "on",
+            "parallel": "on",
+            "threads": 2,
+        },
+    )
     if status != "ok":
         raise RuntimeError(f"solve failed: status={status}, condition={condition}")
+    emit("Solve finished.")
     n.sanitize()  # TODO: check if necessary
     return {
         "numbers": numbers(n, list(preset.numbers)),
