@@ -1,7 +1,0 @@
-{# The headline numbers, rendered to a string and pushed over SSE (see web/main). #}
-{% for n in numbers %}
-    <article>
-        <small>{{ n.label }}</small>
-        <strong>{{ "{:,.0f}".format(n.value) }} {{ n.unit }}</strong>
-    </article>
-{% endfor %}

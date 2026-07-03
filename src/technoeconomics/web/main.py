@@ -7,34 +7,28 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from technoeconomics.backend.preset import IndustrialHeat
-from technoeconomics.web import sessions, share
+from technoeconomics.web import share
 from technoeconomics.web.forms import form_to_plant, plant_to_form
+from technoeconomics.web.session import SessionManager
 
 BASE_DIR = Path(__file__).resolve().parent
 
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
+sessions = SessionManager()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Surface solve progress to the console at INFO, and run the solver task group.
-
-    The task group (from `sessions.solver_pool`) owns every in-flight solve for the app's
-    lifetime; we keep it on ``app.state`` so request handlers can submit solves into it. A
-    solve can then outlive the handler that started it -- the SSE response streams after the
-    handler returns.
-    """
-    for name in sessions.CAPTURED_LOGGERS:
-        logging.getLogger(name).setLevel(logging.INFO)
-    async with sessions.solver_pool() as pool:
-        app.state.solver_pool = pool
-        yield
+    """Logging, clearly terminate sessions."""
+    logging.getLogger("technoeconomics").setLevel(logging.INFO)
+    yield
+    await sessions.aclose_all()
 
 
 app = FastAPI(
@@ -74,13 +68,11 @@ async def industrial_heat(request: Request):
     A first-time visitor has no ``sid`` cookie, so we mint a session holding a fresh
     default plant and set the cookie on the way out. A returning visitor's cookie points
     at their stored plant (with any edits from earlier solves), so the form reflects it.
-
-    A ``?p=`` share token (if valid) starts a fresh session from the shared plant; we then
-    redirect to the clean URL so a refresh is stable and doesn't re-decode the long token. A
-    malformed token is ignored, falling through to the normal session.
     """
     preset = IndustrialHeat()
     token = request.query_params.get("p")
+
+    # build shared network if present
     if token is not None:
         try:
             plant = share.decode(token)
@@ -94,11 +86,8 @@ async def industrial_heat(request: Request):
             redirect.set_cookie("sid", new_sid, httponly=True, samesite="lax")
             return redirect
 
-    session = sessions.get(request.cookies.get("sid"))
-    new_sid = None
-    if session is None:
-        new_sid, session = sessions.create(preset.build())
-
+    cookie_sid = request.cookies.get("sid")
+    sid, session = sessions.get_or_create(cookie_sid, preset.build)
     response = templates.TemplateResponse(
         request,
         "preset.jinja",
@@ -109,8 +98,8 @@ async def industrial_heat(request: Request):
             "components": plant_to_form(session.plant),
         },
     )
-    if new_sid is not None:
-        response.set_cookie("sid", new_sid, httponly=True, samesite="lax")
+    if sid != cookie_sid:
+        response.set_cookie("sid", sid, httponly=True, samesite="lax")
     return response
 
 
@@ -121,32 +110,22 @@ async def industrial_heat_reset(request: Request):
     htmx swaps the returned form fragment in place of the current one. If the session has
     expired, a fresh one is minted (and its cookie set) so reset still yields a usable form.
     """
-    session = sessions.get(request.cookies.get("sid"))
-    new_sid = None
-    if session is None:
-        new_sid, session = sessions.create(IndustrialHeat().build())
-    else:
-        session.plant = IndustrialHeat().build()
+    cookie_sid = request.cookies.get("sid")
+    sid, session = sessions.get_or_create(cookie_sid, IndustrialHeat().build)
+    session.plant = IndustrialHeat().build()
     response = templates.TemplateResponse(
         request, "_form.jinja", {"components": plant_to_form(session.plant)}
     )
-    if new_sid is not None:
-        response.set_cookie("sid", new_sid, httponly=True, samesite="lax")
+    if sid != cookie_sid:
+        response.set_cookie("sid", sid, httponly=True, samesite="lax")
     return response
 
 
 @app.post("/industrial_heat/share", response_class=HTMLResponse)
 async def industrial_heat_share(request: Request):
-    """Build a shareable link encoding the current (edited) plant.
-
-    Overlays the submitted form onto the session's plant first (like ``/init_solve``), so the
-    link reflects the user's unsaved edits, then returns a fragment holding the link. A
-    non-numeric field yields an error fragment instead.
-    """
-    session = sessions.get(request.cookies.get("sid"))
-    new_sid = None
-    if session is None:
-        new_sid, session = sessions.create(IndustrialHeat().build())
+    """Build a shareable link encoding the current (edited) plant."""
+    cookie_sid = request.cookies.get("sid")
+    sid, session = sessions.get_or_create(cookie_sid, IndustrialHeat().build)
     form = await request.form()
     values = {k: v for k, v in form.items() if isinstance(v, str)}
     try:
@@ -155,62 +134,42 @@ async def industrial_heat_share(request: Request):
         return templates.TemplateResponse(request, "_share.jinja", {"error": str(exc)})
     url = f"{request.url_for('industrial_heat')}?p={share.encode(session.plant)}"
     response = templates.TemplateResponse(request, "_share.jinja", {"url": url})
-    if new_sid is not None:
-        response.set_cookie("sid", new_sid, httponly=True, samesite="lax")
+    if sid != cookie_sid:
+        response.set_cookie("sid", sid, httponly=True, samesite="lax")
     return response
 
 
-@app.post("/industrial_heat/init_solve", response_class=HTMLResponse)
-async def industrial_heat_init_solve(request: Request):
-    """Record the edited plant on the session; the page then opens the stream to solve it.
-
-    No solve runs here -- this only overlays the submitted form onto the session's plant
-    and returns the fragment that opens the EventSource. The solve is started by
-    ``/stream_solve`` when the browser connects, so an unopened stream leaves no orphaned
-    solve running.
-    """
-    session = sessions.get(request.cookies.get("sid"))
-    if session is None:
-        return templates.TemplateResponse(
-            request, "_solving.jinja", {"error": "Session expired -- reload the page."}
-        )
+@app.post("/industrial_heat/solve")
+async def industrial_heat_solve(request: Request) -> Response:
+    """Record the edited plant and launch its solve in the background."""
+    preset = IndustrialHeat()
+    cookie_sid = request.cookies.get("sid")
+    sid, session = sessions.get_or_create(cookie_sid, preset.build)
     form = await request.form()
     values = {k: v for k, v in form.items() if isinstance(v, str)}
     try:
         session.plant = form_to_plant(session.plant, values)
     except ValueError as exc:
-        return templates.TemplateResponse(
-            request, "_solving.jinja", {"error": str(exc)}
-        )
-    return templates.TemplateResponse(request, "_solving.jinja", {})
+        session.report(ServerSentEvent(event="failed", raw_data=str(exc)))
+    else:
+        session.report(ServerSentEvent(event="start", raw_data=""))
+        session.launch(session.plant, preset)
+    response = Response(status_code=204)
+    if sid != cookie_sid:
+        response.set_cookie("sid", sid, httponly=True, samesite="lax")
+    return response
 
 
-@app.get("/industrial_heat/stream_solve", response_class=EventSourceResponse)
-async def industrial_heat_stream_solve(
+@app.get("/industrial_heat/events", response_class=EventSourceResponse)
+async def industrial_heat_events(
     request: Request,
 ) -> AsyncIterator[ServerSentEvent]:
-    """Run the session's solve and stream it to the page as Server-Sent Events."""
+    """Stream the session's solve runs to the page as Server-Sent Events."""
     session = sessions.get(request.cookies.get("sid"))
     if session is None:
         yield ServerSentEvent(
             event="failed", raw_data="Session expired -- reload the page."
         )
         return
-    preset = IndustrialHeat()
-    async for kind, payload in sessions.stream_solve(
-        session, preset, request.app.state.solver_pool
-    ):
-        match kind:
-            case "log":
-                yield ServerSentEvent(event="log", raw_data=str(payload))
-            case "numbers":
-                html = templates.get_template("_numbers.jinja").render(numbers=payload)
-                yield ServerSentEvent(event="numbers", raw_data=html)
-            case "chart":
-                yield ServerSentEvent(event="chart", data=payload)
-            case "error":
-                yield ServerSentEvent(event="failed", raw_data=str(payload))
-                return
-            case "done":
-                yield ServerSentEvent(event="done", raw_data="")
-                return
+    async for event in session.events():
+        yield event

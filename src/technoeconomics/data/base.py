@@ -31,10 +31,11 @@ class Dataset[T](ABC):
     dataset, ``pandas.Series`` for a series. Concrete datasets are frozen dataclasses
     subclassing ``Dataset[float]`` or ``Dataset[pd.Series]`` and implementing ``compute``.
 
-    Serialisation is inherited and needs no per-class code: ``to_dict``/``from_dict`` tag the
-    dict with the class name (so the right subclass is rebuilt) and delegate the fields to a
-    pydantic [`TypeAdapter`][] over the plain dataclass -- which enforces field types on the
-    way in. A concrete dataset therefore stays a pydantic-free ``@dataclass``.
+    Serialisation is inherited and needs no per-class code, and mirrors the other model types:
+    ``to_dict`` tags the dict with the class name and writes the fields (a trusted in-memory
+    object needs only structural encoding); ``from_dict`` rebuilds the named subclass and
+    *validates* the fields via a pydantic [`TypeAdapter`][] (decode is untrusted input, encode
+    is not). A concrete dataset therefore stays a pydantic-free ``@dataclass``.
     """
 
     @abstractmethod

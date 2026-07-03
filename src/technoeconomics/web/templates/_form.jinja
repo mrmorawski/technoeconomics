@@ -9,9 +9,8 @@
     </label>
 {% endmacro %}
 <form id="model-form"
-      hx-post="{{ url_for('industrial_heat_init_solve') }}"
-      hx-target="#run"
-      hx-swap="innerHTML">
+      hx-post="{{ url_for('industrial_heat_solve') }}"
+      hx-swap="none">
     <div class="grid">
         {% for component in components %}
             <fieldset {% if component.color %}style="border-inline-start: 4px solid {{ component.color }}; padding-inline-start: 1rem"{% endif %}>

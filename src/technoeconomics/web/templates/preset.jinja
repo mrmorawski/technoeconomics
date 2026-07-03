@@ -11,14 +11,14 @@
             {{ schematic | safe }}
         </figure>
         {# The editable plant form (web/forms.plant_to_form). Submitting records the edits and
-           swaps in _solving.jinja, which opens the SSE stream; results below update in place
-           via solve.js. #}
+           launches the solve; results below fill in via solve.js as the run streams in. #}
         {% include "_form.jinja" %}
-        {# Swapped by the POST: the run console, which opens the SSE stream. #}
-        <div id="run"></div>
-        {# Updated in place by solve.js as stream events arrive. #}
+        {# Filled in place by solve.js as the run streams over the EventSource (opened on load
+           below): progress lines into the console, then the numbers and charts. #}
+        <pre id="console" class="console"></pre>
         <div id="numbers" class="numbers"></div>
         <div id="charts"></div>
     </section>
     <script src="{{ url_for('static', path='solve.js') }}"></script>
+    <script>connectStream();</script>
 {% endblock content %}

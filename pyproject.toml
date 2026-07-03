@@ -15,6 +15,8 @@ dependencies = [
     "pypsa>=1.2.2",
     "fastapi[standard-no-fastapi-cloud-cli]",
     "cachetools>=7.1.4",
+    "pydantic>=2.13.4",
+    "anyio>=4.14.0",
 ]
 authors = [
   {name = "Marcin Morawski", email = "me@marcin.website"}
@@ -41,6 +43,7 @@ entrypoint = "technoeconomics.web.main:app"
 
 [tool.ruff.lint]
 extend-select = ["D"]
+ignore = ["D107"]  # pydoclint DOC301 enforces the opposite: __init__ args belong in class docstring
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
