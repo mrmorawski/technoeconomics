@@ -113,8 +113,7 @@ class Plant:
         Registers a carrier for each bus (the energy carriers) and a distinct
         carrier per enabled component (named after its id), so per-component flows
         stay attributable. Adds the buses, then resolves the enabled components'
-        dataset fields to concrete values (caching so each distinct input is
-        computed once) and lets each expand itself.
+        dataset fields to concrete values.
         """
         import pypsa
 
