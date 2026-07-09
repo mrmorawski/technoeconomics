@@ -17,6 +17,7 @@ grid = GridElectricity(
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Annotated, TYPE_CHECKING
@@ -64,7 +65,7 @@ def _advanced(default: float) -> float:
 
 
 @dataclass(kw_only=True)
-class Component:
+class Component(ABC):
     """Base for all components: shared identity, serialisation, and the build contract.
 
     Currently components are a thin layer on top of [PyPSA Network Components](https://docs.pypsa.org/latest/user-guide/design/#network-components).
@@ -112,13 +113,13 @@ class Component:
     enabled: bool = True
     plot_color: PlotColor | None = None
 
+    @abstractmethod
     def add_to_network(self, n: pypsa.Network) -> None:
         """Expand this component into one or more PyPSA elements on `n`.
 
         Called on a copy whose dataset fields have already been resolved, so
         ``self.<field>`` yields a concrete number or snapshot-aligned series.
         """
-        raise NotImplementedError
 
 
 _component_validate, _component_dump = tagged_codec(Component)
