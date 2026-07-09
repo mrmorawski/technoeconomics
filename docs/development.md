@@ -36,6 +36,34 @@ repository on demand:
 uv run pre-commit run --all-files
 ```
 
+## Testing
+
+Tests live in `tests/`, one file per module (`test_data.py`, `test_weather.py`, ...),
+and run with [pytest](https://docs.pytest.org):
+
+```bash
+uv run pytest
+```
+
+Warnings are errors.
+
+By default, only fast, local tests are ran.
+
+To run tests that require network access (e.g. downloading weather data), use the `network` tag:
+
+```bash
+uv run pytest -m network
+```
+
+To run slow tests (e.g. solving large complex plants), use the `slow` tag:
+
+```bash
+uv run pytest -m slow
+```
+
+Binary test fixtures (e.g. a small atlite cutout) go under `tests/fixtures/`, one
+subdirectory per dataset, alongside the script that regenerates them.
+
 ## Style
 
 ### Documentation
