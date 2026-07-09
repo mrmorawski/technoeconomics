@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -22,18 +22,23 @@ def _snake_case(name: str) -> str:
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
 
 
-def _assign_ids(components: list[Component]) -> None:
-    """Fill in blank component ids in place, enumerating repeats within a type.
+def _assign_ids(components: list[Component]) -> list[Component]:
+    """Return components with blank ids filled in, enumerating repeats within a type.
 
-    Components carrying an explicit `id` keep it; blank ones get the snake-case
-    class name, suffixed ``_2``, ``_3``, ... when the same base is used more than
-    once. Suffixing skips any id already taken, so auto-generated ids never collide
-    with explicit ones.
+    Components carrying an explicit `id` keep it (and are returned as-is); blank ones
+    get the snake-case class name, suffixed ``_2``, ``_3``, ... when the same base is
+    used more than once. Suffixing skips any id already taken, so auto-generated ids
+    never collide with explicit ones.
+
+    A blank-id component is returned as a `dataclasses.replace` copy carrying the new
+    id, so the caller's original objects are left unmutated.
     """
     taken = {c.id for c in components if c.id}
     counts: dict[str, int] = {}
+    result: list[Component] = []
     for c in components:
         if c.id:
+            result.append(c)
             continue
         base = _snake_case(type(c).__name__)
         counts[base] = counts.get(base, 0) + 1
@@ -41,8 +46,9 @@ def _assign_ids(components: list[Component]) -> None:
         while candidate in taken:
             counts[base] += 1
             candidate = f"{base}_{counts[base]}"
-        c.id = candidate
+        result.append(replace(c, id=candidate))
         taken.add(candidate)
+    return result
 
 
 def _is_bus_ref(name: str) -> bool:
@@ -98,7 +104,7 @@ class Plant:
         explicit = [c.id for c in self.components if c.id]
         if len(explicit) != len(set(explicit)):
             raise ValueError("duplicate component id")
-        _assign_ids(self.components)
+        self.components = _assign_ids(self.components)
         known = set(bus_ids)
         for c in self.components:
             for f in fields(c):
