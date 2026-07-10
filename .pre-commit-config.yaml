@@ -24,7 +24,7 @@ repos:
 
   # ── Ruff: lint + format (replaces black/isort/flake8) ─────────────
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.17                      # keep in sync with pyproject dev dep
+    rev: v0.15.21                      # keep in sync with pyproject dev dep
     hooks:
       - id: ruff-check
         args: [--fix]
@@ -32,13 +32,13 @@ repos:
 
   # ── pydoclint: docstring ↔ signature consistency (Google style) ───
   - repo: https://github.com/jsh9/pydoclint
-    rev: 0.8.6
+    rev: 0.9.1
     hooks:
       - id: pydoclint
 
   # ── uv: keep the lockfile honest ──────────────────────────────────
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.11.21
+    rev: 0.11.28
     hooks:
       - id: uv-lock                    # fail if uv.lock is out of date
 
@@ -66,7 +66,7 @@ repos:
 
   # ── Jinja/HTML templates (djlint) ─────────────────────────────────
   - repo: https://github.com/djlint/djLint
-    rev: v1.36.4                      # check latest
+    rev: v1.40.4                      # check latest
     hooks:
       - id: djlint-jinja             # lint only
       - id: djlint-reformat-jinja  # auto-format (watch htmx attr wrapping)
