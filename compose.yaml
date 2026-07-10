@@ -1,0 +1,14 @@
+# Local development / smoke test: build the image and serve on http://localhost:8080.
+# Production runs deploy/compose.yaml instead.
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8000"
+    environment:
+      TECHNOECONOMICS_CACHE: /data
+    volumes:
+      - data:/data
+
+volumes:
+  data:

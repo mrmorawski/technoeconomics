@@ -1,0 +1,37 @@
+# Production stack. CI copies this file and the Caddyfile to ~/app on the
+# server, then runs: docker compose pull && docker compose up -d
+services:
+  app:
+    image: ghcr.io/mrmorawski/technoeconomics:latest
+    restart: unless-stopped
+    environment:
+      TECHNOECONOMICS_CACHE: /data
+    volumes:
+      - data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  data:
+  caddy-data:
+  caddy-config:
