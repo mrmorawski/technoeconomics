@@ -118,14 +118,17 @@
         "type": "object"
       },
       "FieldSpec": {
-        "description": "One editable numeric leaf of a component (possibly nested inside a dataset).\n\nValue-free: the current value lives in the plant dict, reached by ``path``.\n\nAttributes:\n    path: Id-rooted dotted path into the plant dict, e.g. ``\"grid.price.mean\"``.\n    kind: The input kind; only ``\"number\"`` in v1 (future kinds are additive).\n    label: The path without the component id, e.g. ``\"price.mean\"``.\n    unit: Display/edit unit, e.g. ``\"EUR/MWh\"``, or None if dimensionless.\n    min: Lower bound, or None if unbounded below.\n    max: Upper bound, or None if unbounded above.\n    step: Suggested input step, or None. (No source in v1; reserved for a future marker.)\n    advanced: Render under the form's \"Advanced\" section rather than inline.",
+        "description": "One leaf of a component (possibly nested inside a dataset) surfaced in the form.\n\nValue-free: the current value lives in the plant dict, reached by ``path``.\n\nAttributes:\n    path: Id-rooted dotted path into the plant dict, e.g. ``\"grid.price.mean\"``.\n    kind: The input kind. ``\"number\"`` is an editable numeric input; ``\"series\"`` is a\n        timeseries, shown read-only -- the whitelist in\n        [`validate_edits`][technoeconomics.web.spec.validate_edits] admits an overlay\n        value only for a ``\"number\"``, so a series is surfaced but not yet writable.\n        Further kinds are additive.\n    label: Display name -- from [`Label`][technoeconomics.model.params.Label] when the\n        author gave one, else derived from the path (``\"price.mean\"``).\n    unit: Display/edit unit, e.g. ``\"EUR/MWh\"``, or None if dimensionless. For a\n        ``\"series\"`` this is the unit of each point.\n    min: Lower bound, or None if unbounded below.\n    max: Upper bound, or None if unbounded above.\n    step: Suggested input step, or None. (No source in v1; reserved for a future marker.)\n    advanced: Render under the form's \"Advanced\" section rather than inline.",
         "properties": {
           "advanced": {
             "title": "Advanced",
             "type": "boolean"
           },
           "kind": {
-            "const": "number",
+            "enum": [
+              "number",
+              "series"
+            ],
             "title": "Kind",
             "type": "string"
           },
@@ -191,19 +194,6 @@
           "advanced"
         ],
         "title": "FieldSpec",
-        "type": "object"
-      },
-      "HTTPValidationError": {
-        "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "title": "Detail",
-            "type": "array"
-          }
-        },
-        "title": "HTTPValidationError",
         "type": "object"
       },
       "PresetDetail": {
@@ -328,6 +318,12 @@
             ]
           },
           "status": {
+            "enum": [
+              "running",
+              "done",
+              "failed",
+              "cancelled"
+            ],
             "title": "Status",
             "type": "string"
           }
@@ -368,46 +364,6 @@
         ],
         "title": "SolveErrors",
         "type": "object"
-      },
-      "ValidationError": {
-        "properties": {
-          "ctx": {
-            "title": "Context",
-            "type": "object"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "loc": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                }
-              ]
-            },
-            "title": "Location",
-            "type": "array"
-          },
-          "msg": {
-            "title": "Message",
-            "type": "string"
-          },
-          "type": {
-            "title": "Error Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "loc",
-          "msg",
-          "type"
-        ],
-        "title": "ValidationError",
-        "type": "object"
       }
     }
   },
@@ -435,6 +391,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SolveErrors"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
           }
         },
         "summary": "List Presets"
@@ -470,11 +436,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/SolveErrors"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Unprocessable Entity"
           }
         },
         "summary": "Get Preset"
@@ -510,11 +476,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/SolveErrors"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Unprocessable Entity"
           }
         },
         "summary": "Get Run"
@@ -522,7 +488,7 @@
     },
     "/api/runs/{run_id}/events": {
       "get": {
-        "description": "Stream a run's progress as SSE, resuming from ``Last-Event-ID`` on reconnect.\n\nProgress-only: the stream carries progress lines and one terminal ``done``/``failed`` poke,\nthen ends (the client GETs the result). An unknown/expired run yields one ``failed`` event\nrather than a 404, so the browser's `EventSource` does not reconnect into a loop.",
+        "description": "Stream a run's progress as SSE, resuming from ``Last-Event-ID`` on reconnect.\n\nProgress-only: the stream carries progress lines and one terminal\n``done``/``failed``/``cancelled`` poke, then ends (the client GETs the result). An\nunknown/expired run yields one ``failed`` event\nrather than a 404, so the browser's `EventSource` does not reconnect into a loop.",
         "operationId": "run_events_api_runs__run_id__events_get",
         "parameters": [
           {
@@ -563,13 +529,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "text/event-stream": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/SolveErrors"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Unprocessable Entity"
           }
         },
         "summary": "Run Events"
@@ -604,11 +570,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/SolveErrors"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Unprocessable Entity"
           }
         },
         "summary": "Create Share"
@@ -644,11 +610,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/SolveErrors"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Unprocessable Entity"
           }
         },
         "summary": "Read Share"
@@ -656,7 +622,7 @@
     },
     "/api/solve": {
       "post": {
-        "description": "Validate and apply an overlay onto the preset default, then launch a run.\n\nReturns 202 ``{run_id}`` on success; 422 ``{errors}`` for an invalid overlay path or an\nout-of-bounds value; 409 if this client already has a run in flight; 429 if a cap is hit.",
+        "description": "Validate and apply an overlay onto the preset default, then launch a run.\n\nReturns 202 ``{run_id}`` on success; 422 ``{errors}`` for an invalid overlay path or an\nout-of-bounds value; 429 if a cap is hit. A client's own in-flight run is superseded\nrather than rejected.",
         "operationId": "solve_api_solve_post",
         "parameters": [
           {
