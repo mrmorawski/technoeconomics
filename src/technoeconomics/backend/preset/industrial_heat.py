@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import ClassVar
 
-from technoeconomics.backend.results import Number, Plot
 from technoeconomics.backend.preset.base import Preset
+from technoeconomics.backend.results import Number, Plot
 from technoeconomics.data import Sinusoidal
 from technoeconomics.model.component import (
     Battery,
@@ -23,16 +23,16 @@ from technoeconomics.model.structure import Bus
 class IndustrialHeat(Preset):
     """Industrial process heat: grid power, a heat pump vs an electric boiler, a battery, heat demand."""
 
-    name: ClassVar[str] = "industrial_heat"
-    title: ClassVar[str] = "Industrial process heat"
-    description: ClassVar[str] = (
+    name = "industrial_heat"
+    title = "Industrial process heat"
+    description = (
         "Grid electricity feeds a heat pump and an electric boiler, which compete to "
         "serve a varying heat demand, plus a battery. Edit the parameters and solve to "
         "see the optimal energy balances."
     )
-    schematic: ClassVar[Path] = Path(__file__).parent / "schematics/industrial_heat.svg"
-    plots: ClassVar[list[Plot]] = [Plot.ENERGY_BALANCE]
-    numbers: ClassVar[list[Number]] = [Number.PROJECT_COST]
+    schematic = Path(__file__).parent / "schematics/industrial_heat.svg"
+    plots: ClassVar[tuple[Plot, ...]] = (Plot.ENERGY_BALANCE,)
+    numbers: ClassVar[tuple[Number, ...]] = (Number.PROJECT_COST,)
 
     def build(self) -> Plant:
         """Build the default industrial-heat plant."""
@@ -49,12 +49,14 @@ class IndustrialHeat(Preset):
                     max_capacity=100,
                     capex=1000000,
                     bus="electricity",
+                    fixed=True,
                     plot_color=PlotColor.GREY,
                 ),
                 HeatPump(
                     id="heat_pump",
                     electricity_bus="electricity",
                     heat_bus="heat",
+                    fixed=True,
                     plot_color=PlotColor.RED,
                 ),
                 ElectricBoiler(
