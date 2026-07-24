@@ -16,7 +16,7 @@ def solve(plant: Plant, preset: Preset) -> dict:
     """Build a plant's network, optimise it, and read out the preset's results.
 
     Reports progress per phase via [`progress.emit`][technoeconomics.progress.emit], which the
-    caller (e.g. the web session) may stream to the user; unheard when no sink is bound.
+    caller (e.g. a web run) may stream to the user; unheard when no sink is bound.
 
     Args:
         plant: The plant to solve.

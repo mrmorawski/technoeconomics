@@ -3,7 +3,7 @@
 Neutral and low-level -- it imports nothing from `web`/`backend`/`model`, so any layer (the
 solver here, and later dataset retrieval deep in the model) can `emit` a progress line without
 knowing who, if anyone, is listening. A listener is a *sink* bound around some work with
-[`sink`][technoeconomics.progress.sink]; the web session binds one that streams to the page
+[`sink`][technoeconomics.progress.sink]; a web run binds one that streams to the page
 for the duration of a solve. With no sink bound -- the CLI, tests -- `emit` is a no-op.
 
 The sink lives in a `ContextVar`, so `emit` anywhere in the dynamic scope of the `sink(...)`
