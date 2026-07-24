@@ -34,8 +34,8 @@ FROM python:3.12-slim-bookworm
 RUN useradd --create-home app
 COPY --from=build --chown=app:app /app/.venv /app/.venv
 COPY --from=frontend --chown=app:app /app/frontend/dist /app/frontend/dist
-# main.py mounts the built frontend from FRONTEND_DIST (repo-relative path is wrong once
-# the package is installed into the venv).
+# The frontend is a separate build artifact -- the wheel ships no static files -- so main.py
+# mounts it only when FRONTEND_DIST names a built dist.
 ENV PATH="/app/.venv/bin:$PATH" FRONTEND_DIST=/app/frontend/dist
 
 # dataset cache lives on the data volume ($TECHNOECONOMICS_CACHE); running from

@@ -91,8 +91,8 @@ class Plant:
 
         Rejects duplicate bus ids, duplicate explicit component ids, and any bus
         reference (a component field named ``bus`` or ending in ``_bus``) that does not
-        name a bus in `buses`. Runs on every construction, including the pydantic decode
-        of an untrusted share link, so a malformed plant is refused at the boundary.
+        name a bus in `buses`. Runs on every construction, in memory and through
+        `from_dict` alike, so a malformed plant is refused as it is built.
 
         Raises:
             ValueError: If bus ids collide, explicit component ids collide, or a component
@@ -147,7 +147,9 @@ class Plant:
         The whole plant is one declared pydantic schema: buses become plain dicts, bus
         references stay bus ids, snapshots compress to ``{start, periods, freq}``, and each
         component/dataset is a class-name-tagged dict. The output is stamped with a schema
-        version so old share links can be rejected rather than silently mis-decoded.
+        version so a dict written against an older layout is rejected by
+        [`from_dict`][technoeconomics.model.plant.Plant.from_dict] rather than silently
+        mis-decoded.
         """
         return {"v": 1, **type_adapter(Plant).dump_python(self, mode="json")}
 
@@ -156,7 +158,7 @@ class Plant:
         """Reconstruct a plant from [`to_dict`][technoeconomics.model.plant.Plant.to_dict] output.
 
         The pydantic schema validates the structure and every field, and `__post_init__`
-        checks referential integrity, so an invalid share link is rejected here rather than
+        checks referential integrity, so an invalid dict is rejected here rather than
         failing later at solve time.
 
         Args:

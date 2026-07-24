@@ -33,8 +33,8 @@ class Dataset[T](ABC):
     pydantic-free ``@dataclass``.
     """
 
-    # Inherited by every dataset: rejects unknown keys when decoding
-    # an untrusted share link.
+    # Inherited by every dataset: rejects unknown keys, so a stale or hand-written plant
+    # dict fails loudly in `Plant.from_dict` rather than silently losing a field.
     __pydantic_config__ = ConfigDict(extra="forbid")
 
     # Opt-in result memoisation. A subclass sets ``cache = True`` when its ``compute`` is a
