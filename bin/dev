@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Run the backend and the frontend dev server together for local development.
+#
+#   backend:  uvicorn on :8000 (autoreload)
+#   frontend: vite on :5173 (HMR), proxying /api → :8000
+#
+# Browse http://localhost:5173. Ctrl-C stops both.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+uv run uvicorn technoeconomics.web.main:app --reload --port 8000 &
+backend=$!
+trap 'kill "$backend" 2>/dev/null || true' EXIT INT TERM
+
+(cd frontend && npm run dev)

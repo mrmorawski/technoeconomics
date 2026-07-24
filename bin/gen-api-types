@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Regenerate the API contract and the frontend's TypeScript types from it, end to end:
+#
+#   openapi.json                     ← FastAPI app.openapi()            (bin/gen-openapi)
+#   frontend/src/lib/api-types.ts    ← openapi-typescript(openapi.json) (npm run gen)
+#
+# openapi.json is the committed contract; api-types.ts is generated (gitignored) and is also
+# regenerated automatically before dev/build/check, so it can never drift from openapi.json.
+# Run this after changing any web/ response model or spec/envelope dataclass.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+bin/gen-openapi
+(cd frontend && npm run gen)
+
+echo "regenerated openapi.json + frontend/src/lib/api-types.ts"

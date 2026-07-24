@@ -33,6 +33,15 @@ from technoeconomics.backend import preset as registry
 from technoeconomics.web import share as share_codec
 from technoeconomics.web.envelope import Envelope
 from technoeconomics.web.runs import RunManager
+from technoeconomics.web.schemas import (
+    PresetDetail,
+    PresetSummary,
+    RunAccepted,
+    RunResults,
+    RunSnapshot,
+    ShareToken,
+    SolveErrors,
+)
 from technoeconomics.web.spec import apply_edits, plant_to_spec, validate_edits
 
 if TYPE_CHECKING:
@@ -112,34 +121,39 @@ def _preset(name: str, *, code: int = 404) -> Preset:
 
 
 @router.get("/presets")
-def list_presets() -> list[dict]:
-    """List every preset: ``[{name, title, description}]``."""
+def list_presets() -> list[PresetSummary]:
+    """List every preset for the picker."""
     return [
-        {"name": p.name, "title": p.title, "description": p.description}
+        PresetSummary(name=p.name, title=p.title, description=p.description)
         for p in registry.presets().values()
     ]
 
 
 @router.get("/presets/{name}")
-def get_preset(name: str) -> dict:
+def get_preset(name: str) -> PresetDetail:
     """A preset's presentation, default plant, and form spec for the client to render."""
     preset = _preset(name)
     plant = preset.build()
-    return {
-        "title": preset.title,
-        "description": preset.description,
-        "schematic_svg": preset.schematic_svg(),
-        "plant": plant.to_dict(),
-        "form": plant_to_spec(plant),
-    }
+    return PresetDetail(
+        title=preset.title,
+        description=preset.description,
+        schematic_svg=preset.schematic_svg(),
+        plant=plant.to_dict(),
+        form=plant_to_spec(plant),
+    )
 
 
-@router.post("/solve", status_code=202, response_model=None)
+@router.post(
+    "/solve",
+    status_code=202,
+    response_model=RunAccepted,
+    responses={422: {"model": SolveErrors}},
+)
 async def solve(
     req: Envelope,
     request: Request,
     x_client_id: Annotated[str | None, Header()] = None,
-) -> dict | JSONResponse:
+) -> RunAccepted | JSONResponse:
     """Validate and apply an overlay onto the preset default, then launch a run.
 
     Returns 202 ``{run_id}`` on success; 422 ``{errors}`` for an invalid overlay path or an
@@ -157,19 +171,31 @@ async def solve(
     plant = apply_edits(base, req.overlay, req.enabled)
     run = manager.launch(plant, preset)
     _inflight[run.id] = _InFlight(client_id=client_id, ip=ip)
-    return {"run_id": run.id}
+    return RunAccepted(run_id=run.id)
 
 
 @router.get("/runs/{run_id}")
-def get_run(run_id: str) -> dict:
+def get_run(run_id: str) -> RunSnapshot:
     """A run's status and, once done, its results (``{numbers, charts}``)."""
     run = manager.get(run_id)
     if run is None:
         raise HTTPException(404, "unknown or expired run")
-    return run.snapshot()
+    snap = run.snapshot()
+    results = snap.get("results")
+    return RunSnapshot(
+        status=snap["status"],
+        error=snap.get("error"),
+        results=RunResults(numbers=results["numbers"], charts=results["charts"])
+        if results
+        else None,
+    )
 
 
-@router.get("/runs/{run_id}/events", response_class=EventSourceResponse)
+@router.get(
+    "/runs/{run_id}/events",
+    response_class=EventSourceResponse,
+    response_model=None,
+)
 async def run_events(run_id: str, request: Request) -> AsyncIterator[ServerSentEvent]:
     """Stream a run's progress as SSE, resuming from ``Last-Event-ID`` on reconnect.
 
@@ -188,21 +214,16 @@ async def run_events(run_id: str, request: Request) -> AsyncIterator[ServerSentE
 
 
 @router.post("/share")
-def create_share(req: Envelope) -> dict:
+def create_share(req: Envelope) -> ShareToken:
     """Encode a ``{preset, overlay, enabled}`` envelope to a share token."""
     _preset(req.preset, code=422)  # only a known preset can be shared
-    return {"token": share_codec.encode(req)}
+    return ShareToken(token=share_codec.encode(req))
 
 
 @router.get("/share/{token}")
-def read_share(token: str) -> dict:
+def read_share(token: str) -> Envelope:
     """Decode a share token back to its ``{preset, overlay, enabled}`` envelope."""
     try:
-        shared = share_codec.decode(token)
+        return share_codec.decode(token)
     except ValueError as e:
         raise HTTPException(422, str(e)) from e
-    return {
-        "preset": shared.preset,
-        "overlay": shared.overlay,
-        "enabled": shared.enabled,
-    }

@@ -3,13 +3,19 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "gen": "openapi-typescript ../openapi.json --root-types --root-types-no-schema-prefix -o src/lib/api-types.ts",
+    "postinstall": "npm run gen",
+    "predev": "npm run gen",
     "dev": "vite",
+    "prebuild": "npm run gen",
     "build": "vite build",
     "preview": "vite preview",
+    "precheck": "npm run gen",
     "check": "svelte-check --tsconfig ./tsconfig.json"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5",
+    "openapi-typescript": "^7",
     "svelte": "^5",
     "svelte-check": "^4",
     "typescript": "^5",

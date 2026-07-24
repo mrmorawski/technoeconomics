@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Regenerate the committed API contract (openapi.json) from the FastAPI app -- the single
+# source of truth the frontend types are generated from. Python-only (no node), so it can run
+# as a fast pre-commit guard: if the backend's response models changed, this rewrites
+# openapi.json and pre-commit fails until the new contract is committed.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+uv run python -c 'import json, sys; from technoeconomics.web.main import app; json.dump(app.openapi(), sys.stdout, indent=2, sort_keys=True)' > openapi.json.tmp
+mv openapi.json.tmp openapi.json

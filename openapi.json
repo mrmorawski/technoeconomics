@@ -1,0 +1,715 @@
+{
+  "components": {
+    "schemas": {
+      "Bound": {
+        "description": "One numeric bound: its value and whether it is exclusive (``Gt``/``Lt``).\n\nAttributes:\n    value: The bounding number.\n    exclusive: True for a strict bound (``Gt``/``Lt``), False for inclusive (``Ge``/``Le``).",
+        "properties": {
+          "exclusive": {
+            "title": "Exclusive",
+            "type": "boolean"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "value",
+          "exclusive"
+        ],
+        "title": "Bound",
+        "type": "object"
+      },
+      "ComponentSpec": {
+        "description": "A component rendered as a fieldset: identity, an optional enable toggle, its params.\n\nAttributes:\n    id: The component's id (the first segment of its params' paths).\n    title: Human-readable heading derived from the id.\n    color: The component's plot colour (a hex string), or None.\n    enabled: Whether the component is currently enabled.\n    fixed: If True the component may not be disabled -- the client shows no enable\n        toggle and a submission cannot switch it off.\n    params: The editable numeric leaves, in declaration order.",
+        "properties": {
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "fixed": {
+            "title": "Fixed",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "params": {
+            "items": {
+              "$ref": "#/components/schemas/FieldSpec"
+            },
+            "title": "Params",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "color",
+          "enabled",
+          "fixed",
+          "params"
+        ],
+        "title": "ComponentSpec",
+        "type": "object"
+      },
+      "Envelope": {
+        "additionalProperties": false,
+        "description": "A preset plus the user's overlay edits and enable toggles.\n\nAttributes:\n    preset: The preset name the overlay applies over.\n    overlay: ``{spec_path: value}`` scalar edits.\n    enabled: ``{component_id: bool}`` enable toggles.",
+        "properties": {
+          "enabled": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "title": "Enabled",
+            "type": "object"
+          },
+          "overlay": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Overlay",
+            "type": "object"
+          },
+          "preset": {
+            "title": "Preset",
+            "type": "string"
+          }
+        },
+        "required": [
+          "preset"
+        ],
+        "title": "Envelope",
+        "type": "object"
+      },
+      "FieldError": {
+        "description": "One validation error, addressed to a spec path (or a component id).",
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "message"
+        ],
+        "title": "FieldError",
+        "type": "object"
+      },
+      "FieldSpec": {
+        "description": "One editable numeric leaf of a component (possibly nested inside a dataset).\n\nValue-free: the current value lives in the plant dict, reached by ``path``.\n\nAttributes:\n    path: Id-rooted dotted path into the plant dict, e.g. ``\"grid.price.mean\"``.\n    kind: The input kind; only ``\"number\"`` in v1 (future kinds are additive).\n    label: The path without the component id, e.g. ``\"price.mean\"``.\n    unit: Display/edit unit, e.g. ``\"EUR/MWh\"``, or None if dimensionless.\n    min: Lower bound, or None if unbounded below.\n    max: Upper bound, or None if unbounded above.\n    step: Suggested input step, or None. (No source in v1; reserved for a future marker.)\n    advanced: Render under the form's \"Advanced\" section rather than inline.",
+        "properties": {
+          "advanced": {
+            "title": "Advanced",
+            "type": "boolean"
+          },
+          "kind": {
+            "const": "number",
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Bound"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "min": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Bound"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          }
+        },
+        "required": [
+          "path",
+          "kind",
+          "label",
+          "unit",
+          "min",
+          "max",
+          "step",
+          "advanced"
+        ],
+        "title": "FieldSpec",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "PresetDetail": {
+        "description": "A preset's presentation, default plant, and form spec (``GET /api/presets/{name}``).",
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "form": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentSpec"
+            },
+            "title": "Form",
+            "type": "array"
+          },
+          "plant": {
+            "additionalProperties": true,
+            "title": "Plant",
+            "type": "object"
+          },
+          "schematic_svg": {
+            "title": "Schematic Svg",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "description",
+          "schematic_svg",
+          "plant",
+          "form"
+        ],
+        "title": "PresetDetail",
+        "type": "object"
+      },
+      "PresetSummary": {
+        "description": "A preset in the picker list.",
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "title",
+          "description"
+        ],
+        "title": "PresetSummary",
+        "type": "object"
+      },
+      "RunAccepted": {
+        "description": "The 202 body of a launched solve.",
+        "properties": {
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "title": "RunAccepted",
+        "type": "object"
+      },
+      "RunResults": {
+        "description": "A solved run's readout: curated headline numbers and chart configs (opaque to the API).",
+        "properties": {
+          "charts": {
+            "items": {},
+            "title": "Charts",
+            "type": "array"
+          },
+          "numbers": {
+            "items": {},
+            "title": "Numbers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "numbers",
+          "charts"
+        ],
+        "title": "RunResults",
+        "type": "object"
+      },
+      "RunSnapshot": {
+        "description": "A run's current state (``GET /api/runs/{id}``): status plus error or results when terminal.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "results": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunResults"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "RunSnapshot",
+        "type": "object"
+      },
+      "ShareToken": {
+        "description": "The body of ``POST /api/share``.",
+        "properties": {
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "ShareToken",
+        "type": "object"
+      },
+      "SolveErrors": {
+        "description": "The 422 body of a rejected solve: the field-addressed validation errors.",
+        "properties": {
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/FieldError"
+            },
+            "title": "Errors",
+            "type": "array"
+          }
+        },
+        "required": [
+          "errors"
+        ],
+        "title": "SolveErrors",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "FastAPI",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/presets": {
+      "get": {
+        "description": "List every preset for the picker.",
+        "operationId": "list_presets_api_presets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PresetSummary"
+                  },
+                  "title": "Response List Presets Api Presets Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Presets"
+      }
+    },
+    "/api/presets/{name}": {
+      "get": {
+        "description": "A preset's presentation, default plant, and form spec for the client to render.",
+        "operationId": "get_preset_api_presets__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresetDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Preset"
+      }
+    },
+    "/api/runs/{run_id}": {
+      "get": {
+        "description": "A run's status and, once done, its results (``{numbers, charts}``).",
+        "operationId": "get_run_api_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Run"
+      }
+    },
+    "/api/runs/{run_id}/events": {
+      "get": {
+        "description": "Stream a run's progress as SSE, resuming from ``Last-Event-ID`` on reconnect.\n\nProgress-only: the stream carries progress lines and one terminal ``done``/``failed`` poke,\nthen ends (the client GETs the result). An unknown/expired run yields one ``failed`` event\nrather than a 404, so the browser's `EventSource` does not reconnect into a loop.",
+        "operationId": "run_events_api_runs__run_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "properties": {
+                    "data": {
+                      "type": "string"
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Events"
+      }
+    },
+    "/api/share": {
+      "post": {
+        "description": "Encode a ``{preset, overlay, enabled}`` envelope to a share token.",
+        "operationId": "create_share_api_share_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Envelope"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareToken"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Share"
+      }
+    },
+    "/api/share/{token}": {
+      "get": {
+        "description": "Decode a share token back to its ``{preset, overlay, enabled}`` envelope.",
+        "operationId": "read_share_api_share__token__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Share"
+      }
+    },
+    "/api/solve": {
+      "post": {
+        "description": "Validate and apply an overlay onto the preset default, then launch a run.\n\nReturns 202 ``{run_id}`` on success; 422 ``{errors}`` for an invalid overlay path or an\nout-of-bounds value; 409 if this client already has a run in flight; 429 if a cap is hit.",
+        "operationId": "solve_api_solve_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-client-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Client-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Envelope"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SolveErrors"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Solve"
+      }
+    }
+  }
+}

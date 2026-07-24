@@ -52,6 +52,16 @@ repos:
         types_or: [python, pyi]
         pass_filenames: false
 
+      # Keep the committed API contract in sync with the backend. Regenerates openapi.json
+      # from the FastAPI app; if a web/ response model changed, the file is rewritten and
+      # pre-commit fails until it is re-staged (frontend api-types.ts derives from it at build).
+      - id: openapi
+        name: openapi.json up to date
+        entry: bin/gen-openapi
+        language: system
+        pass_filenames: false
+        files: ^(src/technoeconomics/web/|openapi\.json$)
+
   # ── Dockerfile linting ────────────────────────────────────────────
   - repo: https://github.com/hadolint/hadolint
     rev: v2.14.0

@@ -25,3 +25,6 @@ site/
 node_modules/
 .vite/
 *.local
+
+# generated from openapi.json before every dev/build/check — never committed, never stale
+frontend/src/lib/api-types.ts
