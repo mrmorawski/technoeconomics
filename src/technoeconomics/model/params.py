@@ -21,7 +21,7 @@ validation, and pydantic cannot guarantee what a dataset will compute. On a fiel
 can also hold a dataset, the bound therefore goes on the *scalar branch* of the union
 (``Param[Scalar, Ge(0)] | ScalarDataset``), never on the union itself: pydantic applies
 an outer bound to whatever the union yields and raises a bare `TypeError` when that is
-a dataset value. The form-spec generator ([`technoeconomics.web.forms`][]) reads the
+a dataset value. The form-spec generator ([`technoeconomics.web.spec`][]) reads the
 scalar-branch bound as the field's effective bound, and propagates it (with the unit)
 to the [`Magnitude`][technoeconomics.model.params.Magnitude] leaves of a dataset in
 that field -- those leaves are user-supplied scalars too, checked by the solve
