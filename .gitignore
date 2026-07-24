@@ -20,3 +20,8 @@ learning
 
 # docs build output (zensical build) — rebuilt by CI
 site/
+
+# frontend (Vite + Svelte); frontend/dist is covered by dist/ above
+node_modules/
+.vite/
+*.local
