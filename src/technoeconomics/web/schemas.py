@@ -10,9 +10,12 @@ so those shapes are declared once and flow through to the client unchanged.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from technoeconomics.web.spec import ComponentSpec
+
+Status = Literal["running", "done", "failed", "cancelled"]
+"""A run's lifecycle state. Declared here, with the DTO that carries it to the client."""
 
 
 @dataclass
@@ -47,7 +50,7 @@ class RunResults:
 class RunSnapshot:
     """A run's current state (``GET /api/runs/{id}``): status plus error or results when terminal."""
 
-    status: str
+    status: Status
     error: str | None = None
     results: RunResults | None = None
 

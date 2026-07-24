@@ -1,10 +1,10 @@
 """Runs: launch a solve, stream its progress, store its result -- addressed by run_id.
 
-Replaces the cookie-keyed `Session`. A `Run` is addressable by an opaque run_id; there are no
-user sessions and no cross-run history. Results are a **GET-able resource** stored on the run,
-and the SSE stream is **progress-only**: it carries progress lines and one terminal
-``done``/``failed`` poke, after which the server closes the stream and the client GETs the
-result (no reconnect-into-404 loop).
+A `Run` is addressable by an opaque run_id; there are no user sessions and no cross-run
+history. Results are a **GET-able resource** stored on the run, and the SSE stream is
+**progress-only**: it carries progress lines and one terminal poke (``done``, ``failed`` or
+``cancelled``), after which the server closes the stream and the client GETs the result (no
+reconnect-into-404 loop).
 
 The lifecycle invariants that keep this correct, each small but load-bearing:
 
@@ -28,7 +28,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from anyio import (
@@ -41,7 +41,9 @@ from cachetools import TTLCache
 from fastapi.sse import ServerSentEvent
 
 from technoeconomics import progress
+from technoeconomics.backend.solve import SolveError
 from technoeconomics.backend.solve import solve as _solve
+from technoeconomics.web.schemas import RunResults, RunSnapshot, Status
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
@@ -60,8 +62,12 @@ _TAIL_CAP = 512
 # Per-subscriber SSE queue depth.
 _BUFFER = 256
 
-Status = Literal["running", "done", "failed", "cancelled"]
 _TERMINAL = ("done", "failed", "cancelled")
+
+# Shown when a solve fails for a reason that is not the user's to act on. The real exception
+# goes to the log: a raw pypsa/linopy/HiGHS message on the page is noise at best and leaks
+# internals at worst. A `SolveError` is the exception -- it is written for the user.
+_INTERNAL_ERROR = "The solve failed unexpectedly. Please try again."
 
 
 class Run:
@@ -80,7 +86,7 @@ class Run:
         self.started = time.monotonic()
         self._manager = manager
         self.status: Status = "running"
-        self.result: dict | None = None  # {"numbers", "charts"} once done
+        self.result: RunResults | None = None  # set once done
         self.error: str | None = None
         self._events: list[ServerSentEvent] = []  # progress tail, monotonically id'd
         self._next_event_id = 1
@@ -89,18 +95,14 @@ class Run:
             None  # the run coroutine (pinned by manager)
         )
 
-    def snapshot(self) -> dict:
-        """The run's current state for ``GET /api/runs/{id}``.
+    def snapshot(self) -> RunSnapshot:
+        """The run's current state, as the DTO ``GET /api/runs/{id}`` returns.
 
-        Returns:
-            ``{"status": ...}`` plus ``error`` when failed or ``results`` when done.
+        `_finish` is the only writer of all three fields and keeps them consistent (a done
+        run has results and no error; a failed or cancelled one the reverse), so this is a
+        straight projection.
         """
-        state: dict = {"status": self.status}
-        if self.status == "done":
-            state["results"] = self.result
-        elif self.error is not None:  # failed or cancelled
-            state["error"] = self.error
-        return state
+        return RunSnapshot(status=self.status, error=self.error, results=self.result)
 
     async def _run(self, plant: Plant, preset: Preset, deadline: float) -> None:
         """Run the solve in a worker thread under a deadline; the task body.
@@ -130,15 +132,20 @@ class Run:
         """Solve in a worker thread, then mark the run terminal (result stored first).
 
         Runs on the worker thread; hops to the loop for every state change via `_on_loop`.
+        A `SolveError` describes the user's model and is passed through; anything else is a
+        bug, logged in full and reported as a generic failure.
         """
         try:
             with progress.sink(self._message):
                 out = _solve(plant, preset)
-            result = {"numbers": out["numbers"], "charts": out["plots"]}
+            result = RunResults(numbers=out["numbers"], charts=out["plots"])
             self._on_loop(self._finish, "done", result, None)
-        except Exception as exc:  # noqa: BLE001 -- surface any solve failure to the user
-            log.exception("Solve failed")
+        except SolveError as exc:
+            log.info("Run %s did not solve: %s", self.id, exc)
             self._on_loop(self._finish, "failed", None, str(exc))
+        except Exception:  # noqa: BLE001 -- any other failure still terminates the run
+            log.exception("Run %s: solve raised", self.id)
+            self._on_loop(self._finish, "failed", None, _INTERNAL_ERROR)
 
     def _message(self, text: str) -> None:
         """Stream one progress line to subscribers, as the solve's `progress` sink.
@@ -173,7 +180,7 @@ class Run:
                 pass
 
     def _finish(
-        self, status: Status, result: dict | None = None, error: str | None = None
+        self, status: Status, result: RunResults | None = None, error: str | None = None
     ) -> None:
         """Mark the run terminal, store its outcome, emit the terminal event, retire it (loop-side).
 

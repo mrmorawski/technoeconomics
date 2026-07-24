@@ -1,7 +1,8 @@
 // The one transport for run progress. Swapping SSE for another transport later touches only
 // this file. The backend stream is progress-only: `progress` lines, then a single terminal
-// `done`/`failed` poke, after which the server closes the stream (so we close too); a dropped
-// connection mid-run auto-reconnects and resumes via Last-Event-ID with no duplicated lines.
+// `done`/`failed`/`cancelled` poke, after which the server closes the stream (so we close
+// too); a dropped connection mid-run auto-reconnects and resumes via Last-Event-ID with no
+// duplicated lines.
 
 export interface RunEvent {
   event: "progress" | "done" | "failed" | "cancelled";

@@ -22,6 +22,7 @@
     type StoredEdits,
   } from "./lib/store";
   import { streamRun } from "./lib/events";
+  import { formErrors } from "./lib/validate";
   import Form from "./lib/Form.svelte";
   import Console from "./lib/Console.svelte";
   import Numbers from "./lib/Numbers.svelte";
@@ -66,11 +67,22 @@
   let fieldErrors = $state<FieldError[]>([]);
   let solveMessage = $state<string | null>(null);
   let cancelStream: (() => void) | null = null;
+  // Bumped by every launch and every teardown. A solve's POST and SSE callbacks compare against
+  // it and go quiet once superseded: without it a response from an abandoned run (a preset
+  // switch, a second Solve) lands on the current one's state — clobbering `cancelStream` so the
+  // live stream can never be closed, and reporting the abandoned run's outcome as this one's.
+  let generation = 0;
 
   const numberItems = $derived((results?.numbers ?? []) as NumberItem[]);
   const chartItems = $derived((results?.charts ?? []) as ChartItem[]);
 
+  // Local validation, so an empty or out-of-range input is reported as it is typed rather than
+  // as a rejected POST. The server re-checks everything regardless.
+  const localErrors = $derived(formErrors(detail?.form ?? [], values));
+  const canSolve = $derived(Object.keys(localErrors).length === 0);
+
   function clearRun() {
+    generation += 1;
     cancelStream?.();
     cancelStream = null;
     running = false;
@@ -137,10 +149,18 @@
   }
 
   async function runSolve() {
+    if (!canSolve) return; // the Solve button is disabled; guards the programmatic callers
+    // Claim this launch and retire the previous one before the first await, so an in-flight
+    // stream is closed immediately rather than when its (now stale) POST returns.
+    const mine = ++generation;
+    const current = () => mine === generation;
+    cancelStream?.();
+    cancelStream = null;
     fieldErrors = [];
     solveMessage = null;
     running = true; // disable controls at once; also closes the double-click window
     const outcome = await solve(envelope(), clientId());
+    if (!current()) return;
     if (!outcome.ok) {
       running = false;
       if (outcome.kind === "invalid") fieldErrors = outcome.errors;
@@ -149,7 +169,6 @@
       else solveMessage = outcome.message;
       return;
     }
-    cancelStream?.();
     // Open the console at once so a queued solve (waiting for a free solver) gives feedback
     // instead of a silent spinner; real progress lines append below.
     consoleLines = ["Solve queued — waiting for a free solver…"];
@@ -157,10 +176,12 @@
     // place (each chart is keyed by id), so a chart never blanks out between solves.
     const runId = outcome.runId;
     cancelStream = streamRun(runId, async (e) => {
+      if (!current()) return;
       if (e.event === "progress") {
         consoleLines = [...consoleLines, e.data];
       } else if (e.event === "failed") {
         consoleLines = [...consoleLines, `Error: ${e.data}`];
+        solveMessage = e.data;
         running = false;
       } else if (e.event === "cancelled") {
         // Another tab (same client) started a newer solve; this run was superseded.
@@ -171,11 +192,12 @@
         consoleLines = [...consoleLines, "Done."];
         try {
           const snap = await getRun(runId);
+          if (!current()) return;
           if (snap.results) results = snap.results; // update; never blank the charts
         } catch {
-          solveMessage = "Could not fetch results.";
+          if (current()) solveMessage = "Could not fetch results.";
         }
-        running = false;
+        if (current()) running = false;
       }
     });
   }
@@ -266,10 +288,10 @@
       <div class="schematic">{@html detail.schematic_svg}</div>
     {/if}
 
-    <Form form={detail.form} {values} {enabled} />
+    <Form form={detail.form} {values} {enabled} errors={localErrors} />
 
     <div class="actions">
-      <button onclick={runSolve} disabled={running} aria-busy={running}>
+      <button onclick={runSolve} disabled={running || !canSolve} aria-busy={running}>
         {running ? "Solving…" : "Solve"}
       </button>
       <button class="secondary" onclick={reset}>Reset</button>
@@ -281,6 +303,10 @@
         Share URL
         <input type="text" readonly value={shareUrl} onfocus={(e) => e.currentTarget.select()} />
       </label>
+    {/if}
+
+    {#if !canSolve}
+      <article class="notice">Fix the highlighted parameters to solve.</article>
     {/if}
 
     {#if solveMessage}
