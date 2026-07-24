@@ -1,7 +1,15 @@
 // Typed fetch wrappers for the JSON API. Same-origin `/api` in both dev (Vite proxy) and prod
-// (FastAPI serves the built frontend). Solve and the run resource live in 3b.
+// (FastAPI serves the built frontend). Types come from the generated `api-types`.
 
-import type { Envelope, PresetDetail, PresetSummary } from "./api-types";
+import type {
+  Envelope,
+  FieldError,
+  PresetDetail,
+  PresetSummary,
+  RunAccepted,
+  RunSnapshot,
+  SolveErrors,
+} from "./api-types";
 
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url, { headers: { accept: "application/json" } });
@@ -15,6 +23,40 @@ export function listPresets(): Promise<PresetSummary[]> {
 
 export function getPreset(name: string): Promise<PresetDetail> {
   return getJSON<PresetDetail>(`/api/presets/${encodeURIComponent(name)}`);
+}
+
+/** The outcome of a solve POST, discriminated by the server's status. */
+export type SolveOutcome =
+  | { ok: true; runId: string }
+  | { ok: false; kind: "invalid"; errors: FieldError[] }
+  | { ok: false; kind: "busy"; retryAfter: number | null }
+  | { ok: false; kind: "error"; message: string };
+
+/** Launch a solve. 202 → a run id (superseding any earlier one); 422 → field errors; 429 → capped. */
+export async function solve(env: Envelope, clientId: string): Promise<SolveOutcome> {
+  const res = await fetch("/api/solve", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-client-id": clientId },
+    body: JSON.stringify(env),
+  });
+  if (res.status === 202) {
+    const body = (await res.json()) as RunAccepted;
+    return { ok: true, runId: body.run_id };
+  }
+  if (res.status === 422) {
+    const body = (await res.json()) as SolveErrors;
+    return { ok: false, kind: "invalid", errors: body.errors ?? [] };
+  }
+  if (res.status === 429) {
+    const retry = res.headers.get("retry-after");
+    return { ok: false, kind: "busy", retryAfter: retry ? Number(retry) : null };
+  }
+  return { ok: false, kind: "error", message: `Solve failed (${res.status}).` };
+}
+
+/** A run's status and, once done, its results. */
+export function getRun(runId: string): Promise<RunSnapshot> {
+  return getJSON<RunSnapshot>(`/api/runs/${encodeURIComponent(runId)}`);
 }
 
 /** Encode the current envelope to a share token (server-side codec). */

@@ -28,3 +28,31 @@
 .schematic .component.disabled {
   opacity: 0.35;
 }
+
+/* Solve results (rendered inside the Console / Numbers / Chart components). */
+.console {
+  max-height: 12rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 0.85rem;
+  background: var(--pico-code-background-color);
+  padding: 0.75rem;
+  border-radius: var(--pico-border-radius);
+}
+.numbers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+.numbers article {
+  margin: 0;
+}
+.charts {
+  display: grid;
+  gap: 1.5rem;
+}
+.result-plot {
+  width: 100%;
+  height: 360px;
+}

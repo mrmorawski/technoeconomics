@@ -60,8 +60,8 @@ _TAIL_CAP = 512
 # Per-subscriber SSE queue depth.
 _BUFFER = 256
 
-Status = Literal["running", "done", "failed"]
-_TERMINAL = ("done", "failed")
+Status = Literal["running", "done", "failed", "cancelled"]
+_TERMINAL = ("done", "failed", "cancelled")
 
 
 class Run:
@@ -96,10 +96,10 @@ class Run:
             ``{"status": ...}`` plus ``error`` when failed or ``results`` when done.
         """
         state: dict = {"status": self.status}
-        if self.status == "failed":
-            state["error"] = self.error
-        elif self.status == "done":
+        if self.status == "done":
             state["results"] = self.result
+        elif self.error is not None:  # failed or cancelled
+            state["error"] = self.error
         return state
 
     async def _run(self, plant: Plant, preset: Preset, deadline: float) -> None:
@@ -186,8 +186,19 @@ class Run:
         self.status = status
         self.result = result
         self.error = error
-        self._emit(ServerSentEvent(event=status, raw_data=error or ""))
+        # The data must be non-empty: an SSE event with no `data:` line is not dispatched by the
+        # browser's EventSource, so an empty terminal poke would never reach the client.
+        self._emit(ServerSentEvent(event=status, raw_data=error or status))
         self._manager.retire(self)
+
+    def cancel(self, reason: str) -> None:
+        """Terminate the run as superseded, poking any tab still streaming it; idempotent.
+
+        The worker thread and its `CapacityLimiter` slot are unrecoverable (threads can't be
+        killed), so this frees only the run's *accounting* -- releasing the client's
+        single-flight slot so a newer solve is not locked out by an abandoned one.
+        """
+        self._finish("cancelled", error=reason)
 
     async def events(self, last_id: int | None) -> AsyncIterator[ServerSentEvent]:
         """Yield this run's events for one SSE connection: replay the tail, then live, then close.

@@ -94,22 +94,40 @@ def _prune() -> None:
 
 
 def _admit(client_id: str, ip: str) -> None:
-    """Raise 409/429 if a new run is not allowed for this client/IP; return otherwise."""
+    """Enforce the live-run caps, then supersede this client's own in-flight run.
+
+    A client is single-flight, but launching a new solve *supersedes* its previous run rather
+    than being rejected -- so a user is never locked out by a tab they abandoned mid-solve. The
+    caps count only *other* clients' runs, so a re-solve never trips a cap on its own run; if
+    other load has filled a cap the request is 429'd and this client's existing run is left be.
+    """
     _prune()
-    if client_id and any(f.client_id == client_id for f in _inflight.values()):
-        raise HTTPException(409, "a solve is already running in another tab")
-    if len(_inflight) >= _GLOBAL_LIVE_CAP:
+    others = [f for f in _inflight.values() if f.client_id != client_id]
+    if len(others) >= _GLOBAL_LIVE_CAP:
         raise HTTPException(
             429,
             "the server is busy; try again shortly",
             headers={"Retry-After": _RETRY_AFTER},
         )
-    if ip and sum(1 for f in _inflight.values() if f.ip == ip) >= _PER_IP_LIVE_CAP:
+    if ip and sum(1 for f in others if f.ip == ip) >= _PER_IP_LIVE_CAP:
         raise HTTPException(
             429,
             "too many concurrent solves from your network",
             headers={"Retry-After": _RETRY_AFTER},
         )
+    _supersede(client_id)
+
+
+def _supersede(client_id: str) -> None:
+    """Cancel this client's in-flight run(s), poking any tab still streaming them."""
+    if not client_id:
+        return
+    for run_id, info in list(_inflight.items()):
+        if info.client_id == client_id:
+            run = manager.get(run_id)
+            if run is not None:
+                run.cancel("Superseded by a newer solve.")
+            del _inflight[run_id]
 
 
 def _preset(name: str, *, code: int = 404) -> Preset:
