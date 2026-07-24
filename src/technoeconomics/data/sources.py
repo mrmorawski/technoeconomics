@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from technoeconomics.data.base import Dataset
+from technoeconomics.model.params import Gt, Magnitude, Param, Unit
 
 
 @dataclass(frozen=True)
@@ -15,10 +16,11 @@ class Constant(Dataset[float]):
     """A single fixed value.
 
     Attributes:
-        value: The constant to return.
+        value: The constant to return. A magnitude: its unit and bounds come from the
+            field holding this dataset.
     """
 
-    value: float
+    value: Param[float, Magnitude]
 
     def compute(self, snapshots: pd.DatetimeIndex) -> float:
         """Return ``value``."""
@@ -33,16 +35,17 @@ class Sinusoidal(Dataset[pd.Series]):
     period)``, where ``h`` is the number of hours since the first snapshot.
 
     Attributes:
-        mean: Baseline the wave oscillates around.
-        amplitude: Peak deviation from ``mean``.
+        mean: Baseline the wave oscillates around. A magnitude: its unit and bounds
+            come from the field holding this dataset.
+        amplitude: Peak deviation from ``mean``. A magnitude, like ``mean``.
         period: Oscillation period in hours (e.g. ``24`` daily, ``8760`` yearly).
         phase: Horizontal shift in hours.
     """
 
-    mean: float
-    amplitude: float
-    period: float = 24.0
-    phase: float = 0.0
+    mean: Param[float, Magnitude]
+    amplitude: Param[float, Magnitude]
+    period: Param[float, Gt(0), Unit("h")] = 24.0
+    phase: Param[float, Unit("h")] = 0.0
 
     def compute(self, snapshots: pd.DatetimeIndex) -> pd.Series:
         """Return the sine wave sampled at ``snapshots``."""

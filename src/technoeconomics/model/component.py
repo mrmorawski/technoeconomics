@@ -18,13 +18,14 @@ grid = GridElectricity(
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated, TYPE_CHECKING
 
 from pydantic import ConfigDict
 
 from technoeconomics.data import Scalar, ScalarDataset, SeriesDataset, Timeseries
+from technoeconomics.model.params import Advanced, Ge, Gt, Hidden, Le, Lt, Param, Unit
 from technoeconomics.serialise import tagged_codec
 
 if TYPE_CHECKING:
@@ -44,24 +45,6 @@ class PlotColor(StrEnum):
     GREY = "#7f7f7f"
     OLIVE = "#bcbd22"
     CYAN = "#17becf"
-
-
-def _advanced(default: float) -> float:
-    """Declare a secondary parameter: editable, but tucked under the form's "Advanced".
-
-    A plain field is shown by default; one built with this carries
-    ``metadata={"advanced": True}``, which `web.forms` reads to decide where to render it.
-    The model itself never acts on the flag -- it is inert metadata, the mild layering
-    cost of keeping each parameter's default visibility next to the parameter.
-
-    Args:
-        default: The field's default value.
-
-    Returns:
-        A dataclass ``field`` with the advanced flag set (typed as the value for the
-        dataclass machinery, per the standard ``dataclasses.field`` typing convention).
-    """
-    return field(default=default, metadata={"advanced": True})
 
 
 @dataclass(kw_only=True)
@@ -89,6 +72,11 @@ class Component(ABC):
     A component is a dataclass of technoeconomic parameters plus ``add_to_network()``
     -- a recipe for building a PyPSA component integrated into a model.
 
+    Parameter fields are annotated with the vocabulary from
+    [`technoeconomics.model.params`][] (unit, bounds, visibility), which the form-spec
+    generator reads; a field that is not a numeric scalar or a dataset (e.g. a bus
+    reference) must be marked ``Hidden``.
+
     Bus references are held as bus ids (strings) by name convention: a field named
     ``bus`` or ending in ``_bus`` is a reference to a bus in `Plant.buses`. The plant
     checks these on construction (every reference must name an existing bus).
@@ -100,6 +88,11 @@ class Component(ABC):
             enumerating (e.g. ``heat_pump``, ``heat_pump_2``) when a type appears
             more than once.
         enabled: If False, the component is skipped when the network is built.
+        fixed: If True, this component may not be disabled -- a property of its role
+            in a preset, not of its class (set at preset assembly, e.g. a demand whose
+            removal would leave a degenerate problem). A fixed component gets no enable
+            toggle in the form and its ``enabled`` counts as structure when a submitted
+            plant is checked against its preset.
         plot_color: Colour for this component's flows in result plots. If None, PyPSA
             assigns one when the network is sanitised.
     """
@@ -111,6 +104,7 @@ class Component(ABC):
 
     id: str = ""
     enabled: bool = True
+    fixed: bool = False
     plot_color: PlotColor | None = None
 
     @abstractmethod
@@ -138,10 +132,12 @@ class GridElectricity(Component):
         capex: Annuitised investment cost [EUR/MW].
     """
 
-    bus: str
-    price: Scalar | Timeseries | SeriesDataset = 120.0
-    max_capacity: Scalar | ScalarDataset = _advanced(1000)
-    capex: Scalar | ScalarDataset = _advanced(0)
+    bus: Param[str, Hidden]
+    price: Param[Scalar | Timeseries | SeriesDataset, Unit("EUR/MWh")] = 120.0
+    max_capacity: Param[Param[Scalar, Ge(0)] | ScalarDataset, Unit("MW"), Advanced] = (
+        1000.0
+    )
+    capex: Param[Param[Scalar, Ge(0)] | ScalarDataset, Unit("EUR/MW"), Advanced] = 0.0
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `Generator` injecting electricity at `price`."""
@@ -168,10 +164,12 @@ class HeatPump(Component):
         capex: Annuitised investment cost [EUR/MW of electricity input].
     """
 
-    electricity_bus: str
-    heat_bus: str
-    cop: Scalar | Timeseries | SeriesDataset = 3.0
-    capex: Scalar | ScalarDataset = _advanced(900000.0)
+    electricity_bus: Param[str, Hidden]
+    heat_bus: Param[str, Hidden]
+    cop: Param[Scalar, Gt(0)] | Timeseries | SeriesDataset = 3.0
+    capex: Param[Param[Scalar, Ge(0)] | ScalarDataset, Unit("EUR/MW"), Advanced] = (
+        900000.0
+    )
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `Process` converting electricity (`rate0=-1`) to heat (`rate1=cop`)."""
@@ -198,10 +196,10 @@ class ElectricBoiler(Component):
         capex: Annuitised investment cost [EUR/MW of electricity input].
     """
 
-    electricity_bus: str
-    heat_bus: str
-    efficiency: Scalar | Timeseries | SeriesDataset = 0.99
-    capex: Scalar | ScalarDataset = _advanced(100.0)
+    electricity_bus: Param[str, Hidden]
+    heat_bus: Param[str, Hidden]
+    efficiency: Param[Scalar, Gt(0), Le(1)] | Timeseries | SeriesDataset = 0.99
+    capex: Param[Param[Scalar, Ge(0)] | ScalarDataset, Unit("EUR/MW"), Advanced] = 100.0
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `Process` converting electricity to heat at `efficiency`."""
@@ -232,10 +230,14 @@ class Battery(Component):
             free, leaving the dispatch split degenerate (non-physical "wash").
     """
 
-    bus: str
-    max_hours: Scalar | ScalarDataset = 4.0
-    capex: Scalar | ScalarDataset = _advanced(12000.0)
-    round_trip_efficiency: Scalar | ScalarDataset = _advanced(0.85)
+    bus: Param[str, Hidden]
+    max_hours: Param[Param[Scalar, Gt(0)] | ScalarDataset, Unit("h")] = 4.0
+    capex: Param[Param[Scalar, Ge(0)] | ScalarDataset, Unit("EUR/MW"), Advanced] = (
+        12000.0
+    )
+    round_trip_efficiency: Param[
+        Param[Scalar, Gt(0), Lt(1)] | ScalarDataset, Advanced
+    ] = 0.85
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `StorageUnit` on the electricity bus."""
@@ -265,8 +267,8 @@ class HeatDemand(Component):
         load: Heat demand [MW].
     """
 
-    bus: str
-    load: Scalar | Timeseries | SeriesDataset = 10.0
+    bus: Param[str, Hidden]
+    load: Param[Param[Scalar, Ge(0)] | Timeseries | SeriesDataset, Unit("MW")] = 10.0
 
     def add_to_network(self, n: pypsa.Network) -> None:
         """Add a `Load` representing the heat demand."""

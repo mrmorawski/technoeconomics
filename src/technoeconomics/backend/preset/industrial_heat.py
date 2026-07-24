@@ -67,6 +67,7 @@ class IndustrialHeat(Preset):
                 HeatDemand(
                     id="heat_demand",
                     bus="heat",
+                    fixed=True,  # disabling the demand leaves a degenerate problem
                     load=Sinusoidal(mean=5, amplitude=4.0, period=24.0),
                     plot_color=PlotColor.ORANGE,
                 ),
