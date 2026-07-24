@@ -150,7 +150,9 @@
       return;
     }
     cancelStream?.();
-    consoleLines = [];
+    // Open the console at once so a queued solve (waiting for a free solver) gives feedback
+    // instead of a silent spinner; real progress lines append below.
+    consoleLines = ["Solve queued — waiting for a free solver…"];
     // Keep the current charts on screen while solving; when results arrive they update in
     // place (each chart is keyed by id), so a chart never blanks out between solves.
     const runId = outcome.runId;

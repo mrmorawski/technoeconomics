@@ -4,7 +4,6 @@
   "type": "module",
   "scripts": {
     "gen": "openapi-typescript ../openapi.json --root-types --root-types-no-schema-prefix -o src/lib/api-types.ts",
-    "postinstall": "npm run gen",
     "predev": "npm run gen",
     "dev": "vite",
     "prebuild": "npm run gen",

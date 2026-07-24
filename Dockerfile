@@ -19,11 +19,24 @@ COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
 
+# Build the Svelte frontend. api-types.ts is generated from the committed openapi.json
+# (npm run build → prebuild → gen), so this stage needs no Python.
+FROM node:20-slim AS frontend
+WORKDIR /app/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
+COPY openapi.json /app/openapi.json
+COPY frontend ./
+RUN npm run build
+
 FROM python:3.12-slim-bookworm
 
 RUN useradd --create-home app
 COPY --from=build --chown=app:app /app/.venv /app/.venv
-ENV PATH="/app/.venv/bin:$PATH"
+COPY --from=frontend --chown=app:app /app/frontend/dist /app/frontend/dist
+# main.py mounts the built frontend from FRONTEND_DIST (repo-relative path is wrong once
+# the package is installed into the venv).
+ENV PATH="/app/.venv/bin:$PATH" FRONTEND_DIST=/app/frontend/dist
 
 # dataset cache lives on the data volume ($TECHNOECONOMICS_CACHE); running from
 # it keeps interim CWD-relative cutout paths on the volume too, and creating it

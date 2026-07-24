@@ -16,9 +16,23 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --frozen
       - run: uv run pytest
+      - name: openapi.json is in sync with the backend
+        run: bin/gen-openapi && git diff --exit-code openapi.json
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run check
+        working-directory: frontend
 
   build:
-    needs: test
+    needs: [test, frontend]
     runs-on: ubuntu-latest
     permissions:
       contents: read
