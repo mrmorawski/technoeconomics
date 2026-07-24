@@ -26,6 +26,12 @@ scalar-branch bound as the field's effective bound, and propagates it (with the 
 to the [`Magnitude`][technoeconomics.model.params.Magnitude] leaves of a dataset in
 that field -- those leaves are user-supplied scalars too, checked by the solve
 endpoint's spec-loop since they sit outside pydantic's reach.
+
+A propagated bound constrains **each leaf it lands on, not the value the dataset
+computes**. ``load: Param[Param[Scalar, Ge(0)] | SeriesDataset, Unit("MW")]`` holding a
+`Sinusoidal` bounds ``mean >= 0`` and ``amplitude >= 0`` -- it does not stop
+``mean=1, amplitude=100`` from resolving to a series that dips to -99 MW. Bounds are
+input hygiene; a dataset that has a resolved-value invariant has to enforce it itself.
 """
 
 from __future__ import annotations
@@ -40,6 +46,7 @@ __all__ = [
     "Ge",
     "Gt",
     "Hidden",
+    "Label",
     "Le",
     "Lt",
     "Magnitude",
@@ -67,6 +74,25 @@ class Unit:
 
 
 @dataclass(frozen=True)
+class Label:
+    """The human-readable name a field is shown under (e.g. ``Label("COP")``).
+
+    Without one the form derives a label from the field's path (``round_trip_efficiency``,
+    ``price.mean``), which cannot produce an initialism or a properly cased phrase.
+
+    On a component field holding a dataset the label is a *prefix*: the form renders each
+    leaf as ``"<field label> <leaf label>"`` (so ``Label("Heat demand")`` over a `Sinusoidal`
+    gives "Heat demand mean", "Heat demand amplitude", ...), where the leaf label is the
+    dataset field's own `Label` if it has one, else its name.
+
+    Attributes:
+        text: The display text, e.g. ``"Round-trip efficiency"``.
+    """
+
+    text: str
+
+
+@dataclass(frozen=True)
 class _Flag:
     """A singleton visibility/role marker; compare by identity (``marker is Advanced``).
 
@@ -83,8 +109,8 @@ Advanced = _Flag("Advanced")
 Hidden = _Flag("Hidden")
 """Exclude this field from the form entirely (bus references, non-input plumbing).
 
-Hidden fields stay covered by validation: they are part of the structural projection, so
-a submitted plant whose hidden values differ from the preset's is rejected wholesale.
+A hidden field gets no spec path, so it is not addressable by a submission at all: it keeps
+whatever the preset gave it.
 """
 
 Magnitude = _Flag("Magnitude")

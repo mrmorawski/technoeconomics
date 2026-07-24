@@ -8,10 +8,12 @@
     form,
     values,
     enabled,
+    errors = {},
   }: {
     form: ComponentSpec[];
     values: Record<string, number>;
     enabled: Record<string, boolean>;
+    errors?: Record<string, string>;
   } = $props();
 </script>
 
@@ -35,14 +37,24 @@
     </legend>
 
     {#each inline as field (field.path)}
-      <Field {field} bind:value={values[field.path]} disabled={!enabled[component.id]} />
+      <Field
+        {field}
+        bind:value={values[field.path]}
+        disabled={!enabled[component.id]}
+        error={errors[field.path] ?? null}
+      />
     {/each}
 
     {#if advanced.length}
-      <details>
+      <details open={advanced.some((f) => errors[f.path])}>
         <summary>Advanced</summary>
         {#each advanced as field (field.path)}
-          <Field {field} bind:value={values[field.path]} disabled={!enabled[component.id]} />
+          <Field
+            {field}
+            bind:value={values[field.path]}
+            disabled={!enabled[component.id]}
+            error={errors[field.path] ?? null}
+          />
         {/each}
       </details>
     {/if}

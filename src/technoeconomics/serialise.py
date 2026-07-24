@@ -99,6 +99,24 @@ type Timeseries = Annotated[
 ]
 
 
+def is_timeseries(value: object) -> bool:
+    """True for a value the `Timeseries` alias admits, so callers need not respell the union.
+
+    The alias's arms are not introspectable at runtime (it is a PEP 695 alias over an
+    `Annotated`), so the membership test lives here, next to the definition it mirrors.
+
+    Args:
+        value: The candidate value.
+
+    Returns:
+        True for an ndarray, a `pandas.Series`, or a plain sequence of numbers (a `str`
+        is a sequence but never a timeseries).
+    """
+    if isinstance(value, (np.ndarray, pd.Series)):
+        return True
+    return isinstance(value, Sequence) and not isinstance(value, (str, bytes))
+
+
 def _snapshots_to_dict(index: pd.DatetimeIndex) -> dict:
     """Encode a snapshot index compactly (by freq when regular, else explicit values)."""
     if index.freq is not None:

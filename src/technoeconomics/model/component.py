@@ -25,7 +25,17 @@ from typing import Annotated, TYPE_CHECKING
 from pydantic import ConfigDict
 
 from technoeconomics.data import Scalar, ScalarDataset, SeriesDataset, Timeseries
-from technoeconomics.model.params import Advanced, Ge, Gt, Hidden, Le, Lt, Param, Unit
+from technoeconomics.model.params import (
+    Advanced,
+    Ge,
+    Gt,
+    Hidden,
+    Label,
+    Le,
+    Lt,
+    Param,
+    Unit,
+)
 from technoeconomics.serialise import tagged_codec
 
 if TYPE_CHECKING:
@@ -91,15 +101,15 @@ class Component(ABC):
         fixed: If True, this component may not be disabled -- a property of its role
             in a preset, not of its class (set at preset assembly, e.g. a demand whose
             removal would leave a degenerate problem). A fixed component gets no enable
-            toggle in the form and its ``enabled`` counts as structure when a submitted
-            plant is checked against its preset.
+            toggle in the form, and a submission that tries to switch it off is rejected.
         plot_color: Colour for this component's flows in result plots. If None, PyPSA
             assigns one when the network is sanitised.
     """
 
     # Inherited by every component (authors never write it). ``arbitrary_types_allowed``
     # lets pydantic treat the ndarray/Series values a `Timeseries` field may hold as opaque;
-    # ``extra="forbid"`` rejects unknown keys when decoding an untrusted share link.
+    # ``extra="forbid"`` makes `Plant.from_dict` strict, so a stale or hand-written plant dict
+    # fails loudly rather than silently dropping the keys it does not recognise.
     __pydantic_config__ = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
     id: str = ""
@@ -166,7 +176,7 @@ class HeatPump(Component):
 
     electricity_bus: Param[str, Hidden]
     heat_bus: Param[str, Hidden]
-    cop: Param[Scalar, Gt(0)] | Timeseries | SeriesDataset = 3.0
+    cop: Param[Param[Scalar, Gt(0)] | Timeseries | SeriesDataset, Label("COP")] = 3.0
     capex: Param[Param[Scalar, Ge(0)] | ScalarDataset, Unit("EUR/MW"), Advanced] = (
         900000.0
     )
@@ -236,7 +246,9 @@ class Battery(Component):
         12000.0
     )
     round_trip_efficiency: Param[
-        Param[Scalar, Gt(0), Lt(1)] | ScalarDataset, Advanced
+        Param[Scalar, Gt(0), Lt(1)] | ScalarDataset,
+        Label("Round-trip efficiency"),
+        Advanced,
     ] = 0.85
 
     def add_to_network(self, n: pypsa.Network) -> None:
