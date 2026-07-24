@@ -270,7 +270,7 @@
       <button onclick={runSolve} disabled={running} aria-busy={running}>
         {running ? "Solving…" : "Solve"}
       </button>
-      <button class="secondary" onclick={reset} disabled={running}>Reset</button>
+      <button class="secondary" onclick={reset}>Reset</button>
       <button class="secondary outline" onclick={share}>Share link</button>
     </div>
 
