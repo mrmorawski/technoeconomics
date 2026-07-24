@@ -28,3 +28,6 @@ node_modules/
 
 # generated from openapi.json before every dev/build/check — never committed, never stale
 frontend/src/lib/api-types.ts
+
+# Solver licence (machine-specific, never committed)
+gurobi.lic
