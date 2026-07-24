@@ -6,5 +6,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-uv run python -c 'import json, sys; from technoeconomics.web.main import app; json.dump(app.openapi(), sys.stdout, indent=2, sort_keys=True)' > openapi.json.tmp
+# The trailing print() is load-bearing: json.dump writes no final newline, and end-of-file-fixer
+# would add one back on every commit -- the two hooks would then rewrite the file in turn and
+# never converge. Keep the newline so both agree on the same bytes.
+uv run python -c 'import json, sys; from technoeconomics.web.main import app; json.dump(app.openapi(), sys.stdout, indent=2, sort_keys=True); print()' > openapi.json.tmp
 mv openapi.json.tmp openapi.json
