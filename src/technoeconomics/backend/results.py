@@ -80,6 +80,12 @@ def _energy_balance(network: pypsa.Network) -> list[dict]:
 
     Each entry is ``{"id": "balance_<carrier>", "option": <echarts option>}``; the id is
     stable across solves so the client can update the carrier's chart in place.
+
+    Series are addressed by a ``<pypsa component>:<carrier>`` key rather than by carrier alone.
+    The key is unique by construction (it is the balance's own MultiIndex), which both the
+    dataset dimension names and the series ids need: a duplicate dimension name would make
+    ``encode.y`` resolve to whichever column came first, and a duplicate series id would break
+    the client's id-keyed merge. The carrier stays the display name.
     """
     balance = network.statistics.energy_balance(aggregate_time=False)
     charts: list[dict] = []
@@ -88,22 +94,33 @@ def _energy_balance(network: pypsa.Network) -> list[dict]:
         # for a stacked balance that is simply zero flow. Fill it, both so the area stacks
         # correctly and because NaN serialises to a bare `NaN` token that is invalid JSON.
         wide = balance.xs(carrier, level="bus_carrier").T.fillna(0.0)
-        names = [comp_carrier for _comp, comp_carrier in wide.columns]
+        columns = list(wide.columns)
+        keys = [f"{comp}:{comp_carrier}" for comp, comp_carrier in columns]
+        labels = [comp_carrier for _comp, comp_carrier in columns]
         # One shared dataset: a header row, then [iso_time, *values_per_series] rows.
-        source = [["time", *names]]
+        source: list[list] = [["time", *keys]]
         for time, row in zip(wide.index, wide.to_numpy().tolist()):
             source.append([time.isoformat(), *row])
         series = [
             {
-                "name": name,
+                "id": key,
+                "name": label,
                 "type": "line",
                 "stack": "balance",
                 "stackStrategy": "samesign",  # supply stacks up, demand stacks down
                 "symbol": "none",
-                "encode": {"x": "time", "y": name},
-                **_series_style(_color(network, name)),
+                # Dispatch is piecewise-constant: the value at snapshot t holds across the
+                # whole interval and then jumps. "end" holds y at the current point until the
+                # next snapshot's x (`start` would hold the *next* value, shifting everything
+                # one interval early). Interpolating instead would draw ramps that are not in
+                # the solution, and read as near-vertical streaks wherever dispatch switches.
+                # `smooth` is off by default too, but say so: a curve here would be fiction.
+                "step": "end",
+                "smooth": False,
+                "encode": {"x": "time", "y": key},
+                **_series_style(_color(network, label)),
             }
-            for name in names
+            for key, label in zip(keys, labels)
         ]
         charts.append(
             {
@@ -139,17 +156,23 @@ def _color(network: pypsa.Network, carrier: str) -> str | None:
 
 
 def _series_style(color: str | None) -> dict:
-    """ECharts styling for one series.
+    """ECharts styling for one series: fill only, in the carrier's colour when it has one.
 
-    A thin line and a translucent fill, plus the carrier colour (line/area/legend) when
-    the carrier has one, else ECharts' default palette.
+    No stroke, deliberately. A stacked band's outline is drawn along its *top*, which sits at
+    the running stack total -- so a component contributing nothing still strokes a line across
+    the chart at whatever that total happens to be, and a step riser strokes a full-height
+    vertical wherever a flow jumps. Both are artefacts of the outline, not of the data: zrender
+    skips a zero-width stroke entirely (`Path.hasStroke`), leaving a band of no height drawing
+    nothing at all, which is what a component sitting at zero should look like.
+
+    The fill is nearly opaque because it is now the only thing separating one band from the
+    next; at the old 0.6 the stack read as mud without its outlines.
     """
-    line: dict = {"width": 1}
-    area: dict = {"opacity": 0.6}
+    area: dict = {"opacity": 0.85}
     extra: dict = {}
     if color is not None:
-        line["color"] = area["color"] = extra["color"] = color
-    return {"lineStyle": line, "areaStyle": area, **extra}
+        area["color"] = extra["color"] = color
+    return {"lineStyle": {"width": 0}, "areaStyle": area, **extra}
 
 
 def _stacked_area(
@@ -159,7 +182,7 @@ def _stacked_area(
     series: list[dict],
     initial_range: tuple[str, str] | None = None,
 ) -> dict:
-    """Assemble a stacked-area ECharts option over a time axis.
+    """Assemble a stepped stacked-area ECharts option over a time axis.
 
     Built-in `dataZoom` (an inside wheel/drag zoom plus a slider) lets the user zoom and
     pan; axis labels are forced to ``YYYY-MM-DD``. `initial_range`, when given, opens the
