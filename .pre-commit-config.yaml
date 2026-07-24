@@ -55,12 +55,14 @@ repos:
       # Keep the committed API contract in sync with the backend. Regenerates openapi.json
       # from the FastAPI app; if a web/ response model changed, the file is rewritten and
       # pre-commit fails until it is re-staged (frontend api-types.ts derives from it at build).
+      # uv.lock is a trigger too: a fastapi/pydantic bump can change the emitted document
+      # with no source change, which CI would otherwise only catch after the commit lands.
       - id: openapi
         name: openapi.json up to date
         entry: bin/gen-openapi
         language: system
         pass_filenames: false
-        files: ^(src/technoeconomics/web/|openapi\.json$)
+        files: ^(src/technoeconomics/web/|uv\.lock$|openapi\.json$)
 
   # ── Dockerfile linting ────────────────────────────────────────────
   - repo: https://github.com/hadolint/hadolint
