@@ -1,11 +1,13 @@
-"""Encode/decode a plant as a compact, URL-safe share token.
+"""Encode/decode an [`Envelope`][technoeconomics.web.envelope.Envelope] as a URL-safe token.
 
-A token is ``base64url(gzip(json(plant.to_dict())))`` -- enough to reconstruct the plant from
-a link with no server-side storage. The JSON carries a schema version (see `Plant.to_dict`), so
-a token from an incompatible schema is rejected rather than silently mis-decoded. `decode` is
-deliberately defensive: a ``?p=`` value is untrusted input, so every malformed, stale, or
-oversized token raises `ValueError` rather than crashing the page or expanding without bound
-(a gzip bomb).
+A token is ``base64url(gzip(json(envelope)))`` -- enough to reconstruct a shared model from a
+link with no server-side storage. The envelope is the same ``{preset, overlay, enabled}`` the
+client edits and solves, so loading a share is just an overlay over the named preset's default.
+
+`decode` is deliberately defensive: a ``?p=`` value is untrusted input, so every malformed,
+stale, or oversized token raises `ValueError` rather than crashing the page or expanding without
+bound (a gzip bomb). `TypeAdapter(Envelope)` validates the envelope's *shape*; that the overlay
+paths exist and its values are in bounds is enforced at solve against the preset's spec.
 """
 
 from __future__ import annotations
@@ -13,40 +15,45 @@ from __future__ import annotations
 import base64
 import binascii
 import gzip
-import json
 import zlib
 
-from technoeconomics.model.plant import Plant
+from pydantic import TypeAdapter, ValidationError
+
+from technoeconomics.web.envelope import Envelope
 
 _GZIP_WBITS = 16 + zlib.MAX_WBITS  # zlib window-bits flag selecting the gzip container
-_MAX_TOKEN = 16 * 1024  # a plant compresses to ~1 KB; cap the encoded input
+_MAX_TOKEN = (
+    16 * 1024
+)  # an overlay compresses to well under this; cap the encoded input
 _MAX_JSON = 256 * 1024  # cap the decompressed payload (gzip-bomb guard)
 
+_envelope = TypeAdapter(Envelope)
 
-def encode(plant: Plant) -> str:
-    """Encode a plant as a URL-safe share token.
+
+def encode(envelope: Envelope) -> str:
+    """Encode an envelope as a URL-safe token.
 
     Args:
-        plant: The plant to encode.
+        envelope: The envelope to encode.
 
     Returns:
         A ``base64url(gzip(json(...)))`` token suitable for a ``?p=`` query value.
     """
-    raw = json.dumps(plant.to_dict(), separators=(",", ":")).encode("utf-8")
+    raw = _envelope.dump_json(envelope)
     return base64.urlsafe_b64encode(gzip.compress(raw)).decode("ascii")
 
 
-def decode(token: str) -> Plant:
-    """Reconstruct a plant from a share token.
+def decode(token: str) -> Envelope:
+    """Reconstruct an envelope from a token.
 
     Args:
         token: A token produced by [`encode`][technoeconomics.web.share.encode].
 
     Returns:
-        The reconstructed plant.
+        The reconstructed envelope (shape-validated, not solve-validated).
 
     Raises:
-        ValueError: If the token is malformed, oversized, or not a valid plant.
+        ValueError: If the token is malformed, oversized, or not a well-formed envelope.
     """
     if len(token) > _MAX_TOKEN:
         raise ValueError("share token too large")
@@ -56,13 +63,9 @@ def decode(token: str) -> Plant:
         raise ValueError("invalid share token") from e
     raw = _gunzip(compressed, _MAX_JSON)
     try:
-        data = json.loads(raw)
-    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        return _envelope.validate_json(raw)
+    except ValidationError as e:
         raise ValueError("invalid share payload") from e
-    try:
-        return Plant.from_dict(data)
-    except Exception as e:  # noqa: BLE001 -- untrusted input: any failure is a bad token
-        raise ValueError("invalid plant in share payload") from e
 
 
 def _gunzip(data: bytes, limit: int) -> bytes:

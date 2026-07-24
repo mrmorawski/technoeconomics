@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
@@ -70,10 +71,13 @@ class Run:
         id: The opaque run id.
         manager: The owning `RunManager`, told when this run reaches a terminal state so it can
             move the run from the live pin into the completed-run TTL cache.
+        preset_name: The preset being solved, retained for completion telemetry.
     """
 
-    def __init__(self, id: str, manager: RunManager) -> None:
+    def __init__(self, id: str, manager: RunManager, preset_name: str) -> None:
         self.id = id
+        self.preset_name = preset_name
+        self.started = time.monotonic()
         self._manager = manager
         self.status: Status = "running"
         self.result: dict | None = None  # {"numbers", "charts"} once done
@@ -249,15 +253,24 @@ class RunManager:
         maxsize: Maximum completed runs retained before the least-recently-inserted is evicted.
         ttl: Seconds a completed run survives (covers reconnect and reload-restore).
         deadline: Seconds a solve may run before the watchdog marks it failed.
+        on_complete: Called with each run as it reaches a terminal state (loop-side) -- the
+            telemetry hook. The outcome does not exist at 202-time, so this fires at completion
+            rather than at launch.
     """
 
     def __init__(
-        self, *, maxsize: int = 256, ttl: float = 15 * 60, deadline: float = 300
+        self,
+        *,
+        maxsize: int = 256,
+        ttl: float = 15 * 60,
+        deadline: float = 300,
+        on_complete: Callable[[Run], None] | None = None,
     ) -> None:
         self._live: dict[str, Run] = {}
         self._done: TTLCache[str, Run] = TTLCache(maxsize=maxsize, ttl=ttl)
         self._tasks: set[asyncio.Task[None]] = set()
         self._deadline = deadline
+        self._on_complete = on_complete
 
     @property
     def live_count(self) -> int:
@@ -278,7 +291,7 @@ class RunManager:
         Returns:
             The new run, pinned live until it reaches a terminal state.
         """
-        run = Run(uuid4().hex, self)
+        run = Run(uuid4().hex, self, preset.name)
         self._live[run.id] = run
         task = asyncio.create_task(run._run(plant, preset, self._deadline))
         run._task = task
@@ -287,9 +300,18 @@ class RunManager:
         return run
 
     def retire(self, run: Run) -> None:
-        """Move a just-terminal run from the live pin into the completed-run TTL cache (loop-side)."""
+        """Move a just-terminal run from the live pin into the completed-run TTL cache (loop-side).
+
+        Fires the completion telemetry hook once, after the run is stored so a hook that reads
+        the run sees its final state.
+        """
         if self._live.pop(run.id, None) is not None:
             self._done[run.id] = run
+            if self._on_complete is not None:
+                try:
+                    self._on_complete(run)
+                except Exception:  # noqa: BLE001 -- telemetry must never break a solve
+                    log.exception("Run %s completion hook failed", run.id)
 
     async def aclose_all(self) -> None:
         """Cancel every live run and dispose it; call once at application shutdown."""
