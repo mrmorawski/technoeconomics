@@ -8,9 +8,10 @@ off the preset registry, so a new preset is picked up with no changes here.
 
 Throttling is day-one API shape:
 
-- **Single-flight** on a client-generated UUID (``X-Client-Id``): a client with a run already in
-  flight gets 409 -- a common path (two tabs share one UUID), handled politely, not a hardening
-  measure.
+- **Single-flight** on a client-generated UUID (``X-Client-Id``): a new solve supersedes that
+  client's own in-flight run -- a common path (two tabs share one UUID), handled politely, not
+  a hardening measure. A request without the header is treated as its own one-shot client, so
+  omitting it can neither share a single-flight slot nor hide from the caps below.
 - **Caps** spoofing can't bypass: a per-IP concurrency cap (``N > 1``, tolerating campus NAT) and
   a global live-run cap, both 429 + ``Retry-After``.
 
@@ -24,6 +25,7 @@ import logging
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated
+from uuid import uuid4
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -37,7 +39,6 @@ from technoeconomics.web.schemas import (
     PresetDetail,
     PresetSummary,
     RunAccepted,
-    RunResults,
     RunSnapshot,
     ShareToken,
     SolveErrors,
@@ -71,7 +72,9 @@ def _telemetry(run: Run) -> None:
 
 
 manager = RunManager(on_complete=_telemetry)
-router = APIRouter(prefix="/api")
+# One 422 shape across the API: the handler in `main` reshapes FastAPI's own request-validation
+# errors into `SolveErrors` too, so the declared contract holds for every route, not just solve.
+router = APIRouter(prefix="/api", responses={422: {"model": SolveErrors}})
 
 
 @dataclass
@@ -100,6 +103,10 @@ def _admit(client_id: str, ip: str) -> None:
     than being rejected -- so a user is never locked out by a tab they abandoned mid-solve. The
     caps count only *other* clients' runs, so a re-solve never trips a cap on its own run; if
     other load has filled a cap the request is 429'd and this client's existing run is left be.
+
+    That exemption is why `client_id` must never be a value two requests can share by default:
+    a shared id would exempt every holder of it from the caps at once. The caller mints a
+    per-request id when the header is absent.
     """
     _prune()
     others = [f for f in _inflight.values() if f.client_id != client_id]
@@ -120,8 +127,6 @@ def _admit(client_id: str, ip: str) -> None:
 
 def _supersede(client_id: str) -> None:
     """Cancel this client's in-flight run(s), poking any tab still streaming them."""
-    if not client_id:
-        return
     for run_id, info in list(_inflight.items()):
         if info.client_id == client_id:
             run = manager.get(run_id)
@@ -161,12 +166,7 @@ def get_preset(name: str) -> PresetDetail:
     )
 
 
-@router.post(
-    "/solve",
-    status_code=202,
-    response_model=RunAccepted,
-    responses={422: {"model": SolveErrors}},
-)
+@router.post("/solve", status_code=202, response_model=RunAccepted)
 async def solve(
     req: Envelope,
     request: Request,
@@ -175,7 +175,8 @@ async def solve(
     """Validate and apply an overlay onto the preset default, then launch a run.
 
     Returns 202 ``{run_id}`` on success; 422 ``{errors}`` for an invalid overlay path or an
-    out-of-bounds value; 409 if this client already has a run in flight; 429 if a cap is hit.
+    out-of-bounds value; 429 if a cap is hit. A client's own in-flight run is superseded
+    rather than rejected.
     """
     preset = _preset(req.preset, code=422)
     base = preset.build()
@@ -183,7 +184,8 @@ async def solve(
     errors = validate_edits(spec, req.overlay, req.enabled)
     if errors:
         return JSONResponse(status_code=422, content={"errors": errors})
-    client_id = x_client_id or ""
+    # An absent header becomes a fresh id rather than a shared empty string: see `_admit`.
+    client_id = x_client_id or uuid4().hex
     ip = request.client.host if request.client else ""
     _admit(client_id, ip)
     plant = apply_edits(base, req.overlay, req.enabled)
@@ -198,15 +200,7 @@ def get_run(run_id: str) -> RunSnapshot:
     run = manager.get(run_id)
     if run is None:
         raise HTTPException(404, "unknown or expired run")
-    snap = run.snapshot()
-    results = snap.get("results")
-    return RunSnapshot(
-        status=snap["status"],
-        error=snap.get("error"),
-        results=RunResults(numbers=results["numbers"], charts=results["charts"])
-        if results
-        else None,
-    )
+    return run.snapshot()
 
 
 @router.get(
@@ -217,8 +211,9 @@ def get_run(run_id: str) -> RunSnapshot:
 async def run_events(run_id: str, request: Request) -> AsyncIterator[ServerSentEvent]:
     """Stream a run's progress as SSE, resuming from ``Last-Event-ID`` on reconnect.
 
-    Progress-only: the stream carries progress lines and one terminal ``done``/``failed`` poke,
-    then ends (the client GETs the result). An unknown/expired run yields one ``failed`` event
+    Progress-only: the stream carries progress lines and one terminal
+    ``done``/``failed``/``cancelled`` poke, then ends (the client GETs the result). An
+    unknown/expired run yields one ``failed`` event
     rather than a 404, so the browser's `EventSource` does not reconnect into a loop.
     """
     run = manager.get(run_id)

@@ -12,6 +12,15 @@ if TYPE_CHECKING:
     from technoeconomics.model.plant import Plant
 
 
+class SolveError(RuntimeError):
+    """The optimisation ran but did not reach an optimal solution.
+
+    Distinct from an internal failure: this is a property of the plant the user submitted
+    (infeasible, unbounded, ...), so its message is written to be shown to them. Anything
+    else escaping `solve` is a bug and is reported generically.
+    """
+
+
 def solve(plant: Plant, preset: Preset) -> dict:
     """Build a plant's network, optimise it, and read out the preset's results.
 
@@ -26,7 +35,7 @@ def solve(plant: Plant, preset: Preset) -> dict:
         ``{"numbers": [...], "plots": [...]}`` -- ready for the page.
 
     Raises:
-        RuntimeError: If the optimisation does not reach an optimal solution.
+        SolveError: If the optimisation does not reach an optimal solution.
     """
     emit("Building network…")
     n = plant.build_network()
@@ -41,7 +50,10 @@ def solve(plant: Plant, preset: Preset) -> dict:
         },
     )
     if status != "ok":
-        raise RuntimeError(f"solve failed: status={status}, condition={condition}")
+        raise SolveError(
+            f"No optimal solution was found for this model (the solver reported "
+            f"{condition!r}). Try adjusting the parameters."
+        )
     emit("Solve finished.")
     n.sanitize()  # TODO: check if necessary
     return {
